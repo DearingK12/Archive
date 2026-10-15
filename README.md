@@ -6,7 +6,7 @@ Welcome to my project archive! This repository contains my projects, experiments
 ## Projects
 
 <!-- PROJECTS:START -->
-- **[Archive](./Archive/)** - Welcome to my project archive! This repository contains my projects, experiments, and development work.
+_No projects found yet._
 <!-- PROJECTS:END -->
 
 ## About
