@@ -21,7 +21,7 @@ def divide(a, b):
 
 
 def welcome():
-    print("This took me forever! Please choose an option!!")
+    print("This took me forever! Please choose an option!!!")
 
 
 def Crazy():
