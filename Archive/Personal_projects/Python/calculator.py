@@ -25,7 +25,7 @@ def welcome():
 
 
 def Crazy():
-    print("This is a crazy function that does nothing but print this message. I just wanted to add it for fun. Enjoy!")
+    print("This is a crazy function I just wanted to add it for fun. Enjoy!")
 
 
 def main():
