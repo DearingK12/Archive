@@ -1,0 +1,1116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ASKODA AI - Workspace</title>
+  
+  <!-- Google Fonts: Space Grotesk, Inter & Fira Code -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <!-- Google Identity Services SDK -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <style>
+    :root {
+      --bg-dark: #0b0f19;
+      --bg-gradient: radial-gradient(circle at 50% -20%, #1a233d, #0b0f19 80%);
+      --card-bg: rgba(22, 30, 49, 0.7);
+      --card-hover: rgba(30, 41, 67, 0.8);
+      --accent-blue: #3b82f6;
+      --accent-skyblue: #38bdf8;
+      --accent-glow: rgba(56, 189, 248, 0.25);
+      --text-main: #ffffff;
+      --text-muted: #9ca3af;
+      --border-color: rgba(255, 255, 255, 0.08);
+      --font-brand: 'Space Grotesk', sans-serif;
+      --font-ui: 'Inter', sans-serif;
+      --font-code: 'Fira Code', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: var(--font-ui); }
+
+    body {
+      background: var(--bg-dark);
+      background-image: var(--bg-gradient);
+      color: var(--text-main);
+      height: 100vh;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* Animated Loading Intro Screen */
+    #intro-screen {
+      position: fixed;
+      top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(11, 15, 25, 0.85);
+      backdrop-filter: blur(25px);
+      -webkit-backdrop-filter: blur(25px);
+      z-index: 9999;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      transition: opacity 0.8s ease, visibility 0.8s ease;
+    }
+
+    .typing-container {
+      font-family: var(--font-brand);
+      font-size: 5rem;
+      font-weight: 700;
+      letter-spacing: 2px;
+      display: flex;
+      align-items: center;
+    }
+
+    .text-ask { color: var(--accent-skyblue); text-shadow: 0 0 25px rgba(56, 189, 248, 0.4); }
+    .text-oda { color: #ffffff; }
+
+    .cursor {
+      display: inline-block;
+      width: 4px; height: 4.5rem;
+      background-color: var(--accent-skyblue);
+      margin-left: 8px;
+      animation: blink 0.7s infinite;
+    }
+
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+    /* Layout Container */
+    .app-container {
+      display: flex;
+      width: 100%; height: 100%;
+      filter: blur(15px);
+      transition: filter 1s ease;
+    }
+
+    /* Sidebar Navigation */
+    .sidebar {
+      width: 260px;
+      background: rgba(11, 15, 25, 0.8);
+      border-right: 1px solid var(--border-color);
+      display: flex; flex-direction: column;
+      justify-content: space-between;
+      padding: 20px;
+      backdrop-filter: blur(10px);
+      z-index: 10;
+    }
+
+    .brand {
+      font-family: var(--font-brand);
+      font-size: 1.5rem; font-weight: 700;
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 20px; cursor: pointer;
+    }
+
+    .brand .brand-ask { color: var(--accent-skyblue); }
+    .brand .brand-oda { color: #ffffff; }
+
+    .new-chat-btn {
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid var(--accent-blue);
+      color: var(--text-main);
+      padding: 12px; border-radius: 12px;
+      cursor: pointer; display: flex; align-items: center; gap: 10px;
+      font-weight: 500; transition: all 0.3s ease; width: 100%;
+    }
+
+    .new-chat-btn:hover {
+      background: var(--accent-blue);
+      box-shadow: 0 0 15px var(--accent-glow);
+    }
+
+    .sidebar-menu {
+      margin-top: 25px; list-style: none;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+
+    .sidebar-menu li a {
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 12px; border-radius: 10px;
+      display: flex; align-items: center; gap: 12px;
+      font-size: 0.95rem; transition: 0.2s;
+      cursor: pointer;
+    }
+
+    .sidebar-menu li a:hover, .sidebar-menu li a.active {
+      background: var(--card-bg);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+    }
+
+    .sidebar-menu li a.active {
+      border-color: var(--accent-skyblue);
+      color: var(--accent-skyblue);
+    }
+
+    .sidebar-footer { border-top: 1px solid var(--border-color); padding-top: 15px; }
+
+    /* Main Container View Management */
+    .main-content {
+      flex: 1; display: flex; flex-direction: column;
+      position: relative; padding: 20px 40px; overflow-y: auto;
+    }
+
+    .view-panel { display: none; height: 100%; flex-direction: column; }
+    .view-panel.active { display: flex; }
+
+    .top-bar {
+      width: 100%; display: flex;
+      justify-content: flex-end; align-items: center; gap: 12px; margin-bottom: 20px;
+    }
+
+    .btn-auth {
+      padding: 8px 16px; border-radius: 8px;
+      font-size: 0.9rem; border: none; cursor: pointer; font-weight: 500;
+      display: inline-flex; align-items: center; gap: 8px; transition: 0.2s;
+    }
+
+    .btn-login { background: transparent; color: var(--text-muted); border: 1px solid var(--border-color); }
+    .btn-login:hover { color: var(--text-main); border-color: var(--accent-skyblue); }
+    .btn-signup { background: var(--accent-blue); color: white; }
+    .btn-logout { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid #ef4444; display: none; }
+    .btn-logout:hover { background: #ef4444; color: white; }
+
+    .user-profile-badge {
+      display: none; align-items: center; gap: 10px;
+      background: var(--card-bg); padding: 6px 12px; border-radius: 20px;
+      border: 1px solid var(--border-color); font-size: 0.85rem;
+    }
+
+    .user-profile-badge img { width: 24px; height: 24px; border-radius: 50%; }
+
+    /* CHAT VIEW STYLES */
+    .chat-view { justify-content: space-between; align-items: center; }
+
+    .greeting-container { text-align: center; margin-top: auto; margin-bottom: 20px; width: 100%; max-width: 760px; }
+    .greeting-container h1 { font-family: var(--font-brand); font-size: 3rem; font-weight: 700; margin-bottom: 10px; }
+    .greeting-container p { color: var(--text-muted); font-size: 1.1rem; }
+
+    .chat-history {
+      width: 100%; max-width: 760px; flex: 1; overflow-y: auto;
+      margin-bottom: 20px; display: flex; flex-direction: column; gap: 15px;
+      padding-right: 10px;
+    }
+
+    .msg-bubble {
+      padding: 14px 18px; border-radius: 14px; max-width: 85%; line-height: 1.5; font-size: 0.95rem; white-space: pre-wrap;
+    }
+
+    .msg-user {
+      align-self: flex-end; background: rgba(59, 130, 246, 0.2);
+      border: 1px solid var(--accent-blue); color: #ffffff;
+    }
+
+    .msg-ai {
+      align-self: flex-start; background: var(--card-bg);
+      border: 1px solid var(--border-color); color: #e5e7eb;
+    }
+
+    .chat-box-wrapper { width: 100%; max-width: 760px; margin-bottom: auto; }
+
+    .input-box {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 20px; padding: 15px 20px;
+      display: flex; flex-direction: column;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+      transition: border 0.3s ease;
+    }
+
+    .input-box:focus-within {
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    .input-box textarea {
+      width: 100%; background: transparent; border: none; outline: none;
+      color: var(--text-main); font-size: 1rem; resize: none; height: 60px;
+    }
+
+    .toolbar {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-top: 10px; padding-top: 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .actions { display: flex; gap: 15px; }
+
+    .action-btn {
+      background: none; border: none; color: var(--text-muted);
+      font-size: 1.1rem; cursor: pointer; transition: 0.2s;
+    }
+
+    .action-btn:hover { color: var(--accent-skyblue); }
+
+    .send-btn {
+      background: var(--accent-blue); color: white; border: none;
+      width: 40px; height: 40px; border-radius: 50%;
+      display: flex; justify-content: center; align-items: center;
+      cursor: pointer; box-shadow: 0 4px 12px var(--accent-glow);
+      transition: transform 0.2s;
+    }
+
+    .send-btn:hover { transform: scale(1.05); }
+
+    .active-context-banner {
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid var(--accent-skyblue);
+      padding: 8px 16px; border-radius: 30px;
+      font-size: 0.85rem; color: var(--accent-skyblue);
+      margin-bottom: 15px; display: none; align-items: center; gap: 8px;
+    }
+
+    /* PROJECTS & NOTEBOOKS VIEW STYLES */
+    .projects-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+    .projects-header h2 { font-family: var(--font-brand); font-size: 2rem; }
+
+    .btn-create-project {
+      background: var(--accent-blue); color: white; border: none;
+      padding: 10px 18px; border-radius: 10px; font-weight: 500;
+      cursor: pointer; display: flex; align-items: center; gap: 8px; transition: 0.2s;
+    }
+
+    .projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+
+    .project-card {
+      background: var(--card-bg); border: 1px solid var(--border-color);
+      border-radius: 16px; padding: 20px; cursor: pointer; transition: all 0.3s ease;
+      display: flex; flex-direction: column; justify-content: space-between; height: 180px;
+    }
+
+    .project-card:hover { background: var(--card-hover); border-color: var(--accent-skyblue); transform: translateY(-3px); }
+    .project-card-header { display: flex; justify-content: space-between; align-items: flex-start; }
+    .project-card h3 { font-size: 1.2rem; font-weight: 600; margin-bottom: 6px; }
+    .project-card p { color: var(--text-muted); font-size: 0.88rem; line-height: 1.3; }
+    .project-card-footer { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: var(--text-muted); border-top: 1px solid var(--border-color); padding-top: 12px; }
+    .project-badge { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+    .project-workspace { display: none; flex-direction: column; gap: 20px; }
+    .project-workspace.active { display: flex; }
+    .workspace-nav { display: flex; align-items: center; gap: 15px; margin-bottom: 10px; }
+    .btn-back { background: none; border: none; color: var(--text-muted); font-size: 1.1rem; cursor: pointer; }
+
+    .files-list { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+    .file-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px; }
+
+    /* NOTEBOOK STYLES */
+    .notebook-editor-view { display: none; flex-direction: column; gap: 20px; }
+    .notebook-editor-view.active { display: flex; }
+    .cell-container { display: flex; flex-direction: column; gap: 15px; }
+    .notebook-cell { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; }
+    .cell-header { background: rgba(255, 255, 255, 0.03); padding: 8px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); font-size: 0.8rem; color: var(--text-muted); }
+    .cell-textarea { width: 100%; background: transparent; border: none; color: var(--text-main); font-family: var(--font-code); padding: 15px; font-size: 0.95rem; line-height: 1.5; resize: vertical; min-height: 90px; outline: none; }
+    .cell-actions { display: flex; gap: 8px; padding: 10px 15px; justify-content: flex-end; background: rgba(0,0,0,0.2); }
+    .btn-run-cell { background: rgba(56, 189, 248, 0.15); color: var(--accent-skyblue); border: 1px solid var(--accent-skyblue); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; }
+    .cell-output { background: rgba(0, 0, 0, 0.4); border-top: 1px dashed var(--border-color); padding: 12px 15px; font-family: var(--font-code); font-size: 0.88rem; color: #a7f3d0; display: none; }
+    .cell-output.active { display: block; }
+
+    /* MODALS */
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.7); backdrop-filter: blur(8px);
+      display: none; justify-content: center; align-items: center; z-index: 1000;
+    }
+
+    .modal-overlay.active { display: flex; }
+
+    .modal {
+      background: #111827; border: 1px solid var(--border-color);
+      width: 100%; max-width: 480px; border-radius: 16px; padding: 25px;
+    }
+
+    .modal h3 { margin-bottom: 15px; font-family: var(--font-brand); }
+    .form-group { margin-bottom: 15px; display: flex; flex-direction: column; gap: 6px; }
+    .form-group label { font-size: 0.85rem; color: var(--text-muted); }
+    .form-group input, .form-group textarea, .form-group select {
+      background: rgba(255,255,255,0.05); border: 1px solid var(--border-color);
+      padding: 10px; border-radius: 8px; color: white; outline: none;
+    }
+
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+    input[type="file"] { display: none; }
+  </style>
+</head>
+<body>
+
+  <!-- Animated Loading Screen -->
+  <div id="intro-screen">
+    <div class="typing-container">
+      <span id="typed-ask" class="text-ask"></span>
+      <span id="typed-oda" class="text-oda"></span>
+      <span class="cursor"></span>
+    </div>
+  </div>
+
+  <div class="app-container" id="app">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div>
+        <div class="brand" onclick="switchView('chat')">
+          <i class="fa-solid fa-sparkles" style="color: var(--accent-skyblue);"></i> 
+          <span><span class="brand-ask">ASK</span><span class="brand-oda">ODA</span></span>
+        </div>
+        <button class="new-chat-btn" onclick="startNewChat()">
+          <i class="fa-solid fa-plus"></i> New Chat
+        </button>
+
+        <ul class="sidebar-menu">
+          <li><a id="nav-chat" class="active" onclick="switchView('chat')"><i class="fa-regular fa-message"></i> Chat & Prompts</a></li>
+          <li><a id="nav-projects" onclick="switchView('projects')"><i class="fa-solid fa-folder-closed"></i> Projects</a></li>
+          <li><a id="nav-notebooks" onclick="switchView('notebooks')"><i class="fa-solid fa-book-open"></i> Notebooks</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-footer">
+        <ul class="sidebar-menu">
+          <li><a onclick="openAccountSettings()"><i class="fa-regular fa-user"></i> Account & Settings</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <!-- Main Content Panel -->
+    <main class="main-content">
+      <header class="top-bar">
+        <div class="user-profile-badge" id="user-badge">
+          <img id="user-avatar" src="https://via.placeholder.com/24" alt="User">
+          <span id="user-name-display">User</span>
+        </div>
+
+        <button class="btn-auth btn-login" id="btn-login-trigger" onclick="openAuthModal()">
+          <i class="fa-brands fa-google"></i> Sign In
+        </button>
+        <button class="btn-auth btn-signup" id="btn-signup-trigger" onclick="openAuthModal()">Sign Up</button>
+        <button class="btn-auth btn-logout" id="btn-logout" onclick="handleSignOut()">
+          <i class="fa-solid fa-right-from-bracket"></i> Sign Out
+        </button>
+      </header>
+
+      <!-- VIEW 1: CHAT SYSTEM -->
+      <div id="view-chat" class="view-panel chat-view active">
+        <div class="greeting-container" id="greeting-box">
+          <div id="context-banner" class="active-context-banner">
+            <i class="fa-solid fa-folder-open"></i> Active Context: <span id="active-project-name">None</span>
+            <i class="fa-solid fa-xmark" style="cursor:pointer; margin-left:8px;" onclick="clearContext()"></i>
+          </div>
+          <h1>Hello, I'm <span style="color: var(--accent-skyblue);">ASK</span>ODA.</h1>
+          <p id="greeting-subtext">How can I assist your workflow or ideas today?</p>
+        </div>
+
+        <!-- Chat Output Feed -->
+        <div class="chat-history" id="chat-history"></div>
+
+        <div class="chat-box-wrapper">
+          <div class="input-box">
+            <textarea id="main-chat-input" placeholder="Ask ASKODA anything or upload files..."></textarea>
+            
+            <div class="toolbar">
+              <div class="actions">
+                <label for="image-upload" class="action-btn" title="Upload Image"><i class="fa-regular fa-image"></i></label>
+                <input type="file" id="image-upload" accept="image/*">
+
+                <label for="file-upload" class="action-btn" title="Upload File"><i class="fa-solid fa-paperclip"></i></label>
+                <input type="file" id="file-upload" accept=".pdf,.doc,.txt">
+
+                <label for="notebook-upload" class="action-btn" title="Add Notebook"><i class="fa-solid fa-book"></i></label>
+                <input type="file" id="notebook-upload" accept=".json,.ipynb">
+
+                <button class="action-btn" id="tts-btn" title="Toggle Text to Speech" onclick="toggleTTS()">
+                  <i class="fa-solid fa-volume-high"></i>
+                </button>
+              </div>
+
+              <button class="send-btn" title="Send Query" onclick="submitUserPrompt()">
+                <i class="fa-solid fa-arrow-up"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW 2: PROJECTS DASHBOARD -->
+      <div id="view-projects" class="view-panel">
+        <div id="projects-list-wrapper">
+          <div class="projects-header">
+            <div>
+              <h2>Projects Workspace</h2>
+              <p style="color: var(--text-muted); font-size: 0.95rem;">Group your files, context, and prompts together.</p>
+            </div>
+            <button class="btn-create-project" onclick="openCreateModal('project')">
+              <i class="fa-solid fa-plus"></i> New Project
+            </button>
+          </div>
+
+          <div class="projects-grid" id="projects-grid"></div>
+        </div>
+
+        <div id="project-workspace" class="project-workspace">
+          <div class="workspace-nav">
+            <button class="btn-back" onclick="closeProjectWorkspace()"><i class="fa-solid fa-arrow-left"></i> Back to Projects</button>
+          </div>
+
+          <div class="projects-header">
+            <div>
+              <h2 id="ws-project-title">Project Name</h2>
+              <p id="ws-project-desc" style="color: var(--text-muted); font-size: 0.95rem;">Project Description</p>
+            </div>
+            <button class="btn-create-project" onclick="chatWithProjectContext()">
+              <i class="fa-solid fa-sparkles"></i> Chat with this Project
+            </button>
+          </div>
+
+          <div class="files-list">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
+              <h4 style="font-weight: 500;">Project Context Files</h4>
+              <label for="project-file-input" class="btn-auth btn-signup" style="cursor:pointer;">
+                <i class="fa-solid fa-upload"></i> Upload Context File
+              </label>
+              <input type="file" id="project-file-input" onchange="uploadProjectFile(event)">
+            </div>
+            <div id="project-files-container"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW 3: NOTEBOOKS DASHBOARD -->
+      <div id="view-notebooks" class="view-panel">
+        <div id="notebooks-list-wrapper">
+          <div class="projects-header">
+            <div>
+              <h2>Interactive Notebooks</h2>
+              <p style="color: var(--text-muted); font-size: 0.95rem;">Execute Python/JS code cells alongside interactive AI notes.</p>
+            </div>
+            <button class="btn-create-project" onclick="openCreateModal('notebook')">
+              <i class="fa-solid fa-plus"></i> New Notebook
+            </button>
+          </div>
+
+          <div class="projects-grid" id="notebooks-grid"></div>
+        </div>
+
+        <div id="notebook-editor" class="notebook-editor-view">
+          <div class="workspace-nav">
+            <button class="btn-back" onclick="closeNotebookEditor()"><i class="fa-solid fa-arrow-left"></i> Back to Notebooks</button>
+          </div>
+
+          <div class="projects-header">
+            <div>
+              <h2 id="nb-title">Notebook Title</h2>
+              <p id="nb-desc" style="color: var(--text-muted); font-size: 0.95rem;">Notebook Description</p>
+            </div>
+            <div style="display:flex; gap:10px;">
+              <button class="btn-auth btn-login" style="border: 1px solid var(--border-color);" onclick="addCell()">
+                <i class="fa-solid fa-plus"></i> Add Cell
+              </button>
+            </div>
+          </div>
+
+          <div class="cell-container" id="cell-container"></div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- AUTHENTICATION MODAL -->
+  <div class="modal-overlay" id="auth-modal">
+    <div class="modal" style="text-align: center;">
+      <h3>Sign In / Sign Up to ASKODA</h3>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">
+        Access your saved projects, custom preferences, and notebooks.
+      </p>
+      
+      <!-- Google Sign-In -->
+      <div id="google-signin-container" style="display: flex; justify-content: center; margin-bottom: 20px;"></div>
+
+      <p style="font-size: 0.8rem; color: var(--text-muted);">OR DEMO ACCESS</p>
+      <button class="btn-auth btn-login" style="width: 100%; margin-top: 10px; justify-content: center;" onclick="mockGoogleLogin()">
+        Continue as Demo User
+      </button>
+
+      <div class="modal-actions" style="justify-content: center;">
+        <button class="btn-auth btn-login" onclick="closeAuthModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PERSONAL PROFILE SETTINGS MODAL -->
+  <div class="modal-overlay" id="settings-modal">
+    <div class="modal">
+      <h3>Personal Settings</h3>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 15px;">
+        Customize how ASKODA addresses you in conversation.
+      </p>
+
+      <div class="form-group">
+        <label>Preferred Display Name</label>
+        <input type="text" id="setting-name" placeholder="What should ASKODA call you?">
+      </div>
+
+      <div class="form-group">
+        <label>Preferred Pronouns</label>
+        <input type="text" id="setting-pronouns" placeholder="e.g., they/them, she/her, he/him">
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-auth btn-login" onclick="closeSettingsModal()">Cancel</button>
+        <button class="btn-auth btn-signup" onclick="saveUserSettings()">Save Preferences</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CREATION MODAL -->
+  <div class="modal-overlay" id="create-modal">
+    <div class="modal">
+      <h3 id="modal-title">Create New Item</h3>
+      <div class="form-group">
+        <label>Title</label>
+        <input type="text" id="item-title-input" placeholder="Enter title...">
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="item-desc-input" rows="3" placeholder="Brief summary..."></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-auth btn-login" onclick="closeCreateModal()">Cancel</button>
+        <button class="btn-auth btn-signup" id="modal-submit-btn">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // State Store & Personal Settings
+    let currentUser = JSON.parse(localStorage.getItem('askoda_user')) || null;
+    let userSettings = JSON.parse(localStorage.getItem('askoda_settings')) || {
+      name: 'User',
+      pronouns: ''
+    };
+
+    let createType = 'project';
+    let projects = [
+      { id: 1, title: 'AI Research & Notes', desc: 'Neural network architectures and research papers.', color: '#38bdf8', files: ['Transformer_Overview.pdf'] }
+    ];
+
+    let notebooks = [
+      { 
+        id: 101, title: 'Data Processing Pipeline', desc: 'Testing data cleaning algorithms.', color: '#a78bfa',
+        cells: [{ id: 1, code: 'console.log("ASKODA Notebook Running");', output: 'ASKODA Notebook Running' }]
+      }
+    ];
+
+    let activeProject = null;
+    let activeNotebook = null;
+    let stateLoadPromise = null;
+
+    const appConfig = { googleClientId: null };
+
+    async function loadClientConfig() {
+      try {
+        const response = await fetch('/api/config', { credentials: 'same-origin' });
+        if (!response.ok) return;
+        const config = await response.json();
+        appConfig.googleClientId = config.googleClientId || null;
+        if (window.google?.accounts?.id && appConfig.googleClientId) {
+          google.accounts.id.initialize({
+            client_id: appConfig.googleClientId,
+            callback: handleGoogleCredentialResponse
+          });
+          google.accounts.id.renderButton(document.getElementById('google-signin-container'), {
+            theme: 'filled_dark',
+            size: 'large',
+            type: 'standard'
+          });
+        }
+      } catch (error) {
+        console.warn('Google auth config unavailable:', error);
+      }
+    }
+
+    // GOOGLE AUTH & USER SESSION LOGIC
+    function initUserSession() {
+      if (currentUser) {
+        document.getElementById('btn-login-trigger').style.display = 'none';
+        document.getElementById('btn-signup-trigger').style.display = 'none';
+        document.getElementById('btn-logout').style.display = 'inline-flex';
+        
+        const badge = document.getElementById('user-badge');
+        badge.style.display = 'inline-flex';
+        document.getElementById('user-avatar').src = currentUser.picture || 'https://via.placeholder.com/24';
+        document.getElementById('user-name-display').textContent = userSettings.name || currentUser.name;
+
+        // Update greeting
+        document.getElementById('greeting-subtext').textContent = `Welcome back, ${userSettings.name || currentUser.name}. How can I help today?`;
+        stateLoadPromise = loadWorkspaceState();
+      } else {
+        document.getElementById('btn-login-trigger').style.display = 'inline-flex';
+        document.getElementById('btn-signup-trigger').style.display = 'inline-flex';
+        document.getElementById('btn-logout').style.display = 'none';
+        document.getElementById('user-badge').style.display = 'none';
+      }
+    }
+
+    function openAuthModal() { document.getElementById('auth-modal').classList.add('active'); }
+    function closeAuthModal() { document.getElementById('auth-modal').classList.remove('active'); }
+
+    // Google JWT Credential Handler
+    async function handleGoogleCredentialResponse(response) {
+      try {
+        const authResponse = await fetch('/api/auth/google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ credential: response.credential })
+        });
+        const data = await authResponse.json();
+        if (!authResponse.ok || !data.user) throw new Error(data.error || 'Sign in failed.');
+
+        currentUser = data.user;
+        if(!userSettings.name || userSettings.name === 'User') userSettings.name = currentUser.name;
+        saveState();
+        closeAuthModal();
+        initUserSession();
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    async function mockGoogleLogin() {
+      try {
+        const authResponse = await fetch('/api/auth/demo', { method: 'POST', credentials: 'same-origin' });
+        const data = await authResponse.json();
+        if (!authResponse.ok || !data.user) throw new Error(data.error || 'Demo sign in failed.');
+        currentUser = data.user;
+        if(!userSettings.name || userSettings.name === 'User') userSettings.name = 'Demo Creator';
+        saveState();
+        closeAuthModal();
+        initUserSession();
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    async function handleSignOut() {
+      await fetch('/api/auth/signout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+      currentUser = null;
+      localStorage.removeItem('askoda_user');
+      initUserSession();
+    }
+
+    // USER SETTINGS & PROFILE MANAGEMENT
+    function openAccountSettings() {
+      document.getElementById('setting-name').value = userSettings.name || '';
+      document.getElementById('setting-pronouns').value = userSettings.pronouns || '';
+      document.getElementById('settings-modal').classList.add('active');
+    }
+
+    function closeSettingsModal() { document.getElementById('settings-modal').classList.remove('active'); }
+
+    function saveUserSettings() {
+      userSettings.name = document.getElementById('setting-name').value.trim() || 'User';
+      userSettings.pronouns = document.getElementById('setting-pronouns').value.trim();
+
+      saveState();
+      closeSettingsModal();
+      initUserSession();
+    }
+
+    function saveState() {
+      localStorage.setItem('askoda_user', JSON.stringify(currentUser));
+      localStorage.setItem('askoda_settings', JSON.stringify(userSettings));
+      persistWorkspaceState();
+    }
+
+    async function loadWorkspaceState() {
+      if (!currentUser) return;
+
+      try {
+        const response = await fetch('/api/state', { credentials: 'same-origin' });
+        if (response.status === 401) {
+          currentUser = null;
+          localStorage.removeItem('askoda_user');
+          initUserSession();
+          return;
+        }
+        if (!response.ok) return;
+        const savedState = await response.json();
+        if (!savedState) return;
+
+        if (savedState.settings) userSettings = { ...userSettings, ...savedState.settings };
+        if (Array.isArray(savedState.projects)) projects = savedState.projects;
+        if (Array.isArray(savedState.notebooks)) notebooks = savedState.notebooks;
+        localStorage.setItem('askoda_settings', JSON.stringify(userSettings));
+        document.getElementById('user-name-display').textContent = userSettings.name || currentUser.name;
+        document.getElementById('greeting-subtext').textContent = `Welcome back, ${userSettings.name || currentUser.name}. How can I help today?`;
+        renderProjects();
+        renderNotebooks();
+      } catch (error) {
+        console.warn('Workspace state is using local cache:', error);
+      }
+    }
+
+    async function persistWorkspaceState() {
+      if (!currentUser) return;
+
+      try {
+        await fetch('/api/state', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            settings: userSettings,
+            projects,
+            notebooks
+          })
+        });
+      } catch (error) {
+        console.warn('Could not sync workspace state:', error);
+      }
+    }
+
+    // OPENAI CHAT VIA SERVER PROXY
+    async function submitUserPrompt() {
+      const inputEl = document.getElementById('main-chat-input');
+      const prompt = inputEl.value.trim();
+      if (!prompt) return;
+
+      const historyEl = document.getElementById('chat-history');
+      
+      document.getElementById('greeting-box').style.display = 'none';
+
+      // Render User Bubble
+      const userBubble = document.createElement('div');
+      userBubble.className = 'msg-bubble msg-user';
+      userBubble.textContent = prompt;
+      historyEl.appendChild(userBubble);
+      inputEl.value = '';
+
+      // Render AI Placeholder Bubble
+      const aiBubble = document.createElement('div');
+      aiBubble.className = 'msg-bubble msg-ai';
+      aiBubble.textContent = 'ASKODA is thinking...';
+      historyEl.appendChild(aiBubble);
+      historyEl.scrollTop = historyEl.scrollHeight;
+
+      // Construct system context with user's personal preferred settings
+      let systemContext = `You are ASKODA, an intelligent AI assistant.`;
+      if (userSettings.name) systemContext += ` Address the user as ${userSettings.name}.`;
+      if (userSettings.pronouns) systemContext += ` Preferred User Pronouns: (${userSettings.pronouns}).`;
+      if (activeProject) systemContext += ` Active Project Context: ${activeProject.title} - ${activeProject.desc}.`;
+
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt, systemContext })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.reply) {
+          aiBubble.textContent = data.reply;
+          if (ttsActive) speakText(data.reply);
+        } else {
+          aiBubble.textContent = "Error: " + (data.error || "Failed to fetch response.");
+        }
+      } catch (err) {
+        aiBubble.textContent = "Network Error: Could not reach the ASKODA server proxy.";
+      }
+    }
+
+    // Text to Speech Synthesizer
+    let ttsActive = false;
+    function toggleTTS() {
+      ttsActive = !ttsActive;
+      document.getElementById('tts-btn').style.color = ttsActive ? '#38bdf8' : '#9ca3af';
+    }
+
+    function speakText(text) {
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+
+    // ROUTER & NAVIGATION
+    function switchView(viewName) {
+      document.querySelectorAll('.view-panel').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.sidebar-menu a').forEach(el => el.classList.remove('active'));
+
+      if(viewName === 'chat') {
+        document.getElementById('view-chat').classList.add('active');
+        document.getElementById('nav-chat').classList.add('active');
+      } else if(viewName === 'projects') {
+        document.getElementById('view-projects').classList.add('active');
+        document.getElementById('nav-projects').classList.add('active');
+        closeProjectWorkspace();
+        renderProjects();
+      } else if(viewName === 'notebooks') {
+        document.getElementById('view-notebooks').classList.add('active');
+        document.getElementById('nav-notebooks').classList.add('active');
+        closeNotebookEditor();
+        renderNotebooks();
+      }
+    }
+
+    // PROJECTS LOGIC
+    function renderProjects() {
+      const grid = document.getElementById('projects-grid');
+      grid.innerHTML = '';
+      projects.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'project-card';
+        card.onclick = () => openProjectWorkspace(p.id);
+        card.innerHTML = `
+          <div>
+            <div class="project-card-header">
+              <h3>${p.title}</h3>
+              <span class="project-badge" style="background:${p.color};"></span>
+            </div>
+            <p>${p.desc}</p>
+          </div>
+          <div class="project-card-footer">
+            <span><i class="fa-solid fa-paperclip"></i> ${p.files.length} Files</span>
+            <span>Open <i class="fa-solid fa-chevron-right"></i></span>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    function openProjectWorkspace(id) {
+      activeProject = projects.find(p => p.id === id);
+      document.getElementById('projects-list-wrapper').style.display = 'none';
+      document.getElementById('project-workspace').classList.add('active');
+      document.getElementById('ws-project-title').textContent = activeProject.title;
+      document.getElementById('ws-project-desc').textContent = activeProject.desc;
+      renderProjectFiles();
+    }
+
+    function closeProjectWorkspace() {
+      document.getElementById('project-workspace').classList.remove('active');
+      document.getElementById('projects-list-wrapper').style.display = 'block';
+    }
+
+    function renderProjectFiles() {
+      const container = document.getElementById('project-files-container');
+      if(!activeProject.files.length) {
+        container.innerHTML = `<p style="color:var(--text-muted); font-size:0.9rem;">No context files added to this project yet.</p>`;
+        return;
+      }
+      container.innerHTML = activeProject.files.map((file, idx) => `
+        <div class="file-item">
+          <span style="font-size:0.9rem;"><i class="fa-regular fa-file" style="margin-right:8px; color:var(--accent-skyblue);"></i> ${file}</span>
+          <i class="fa-solid fa-trash" style="color:var(--text-muted); cursor:pointer;" onclick="deleteProjectFile(${idx})"></i>
+        </div>
+      `).join('');
+    }
+
+    function uploadProjectFile(e) {
+      const file = e.target.files[0];
+      if (file && activeProject) {
+        activeProject.files.push(file.name);
+        renderProjectFiles();
+        saveState();
+      }
+    }
+
+    function deleteProjectFile(idx) {
+      if(activeProject) {
+        activeProject.files.splice(idx, 1);
+        renderProjectFiles();
+        saveState();
+      }
+    }
+
+    function chatWithProjectContext() {
+      if (!activeProject) return;
+      document.getElementById('active-project-name').textContent = activeProject.title;
+      document.getElementById('context-banner').style.display = 'inline-flex';
+      switchView('chat');
+    }
+
+    function clearContext() {
+      activeProject = null;
+      document.getElementById('context-banner').style.display = 'none';
+    }
+
+    // NOTEBOOKS LOGIC
+    function renderNotebooks() {
+      const grid = document.getElementById('notebooks-grid');
+      grid.innerHTML = '';
+      notebooks.forEach(nb => {
+        const card = document.createElement('div');
+        card.className = 'project-card';
+        card.onclick = () => openNotebookEditor(nb.id);
+        card.innerHTML = `
+          <div>
+            <div class="project-card-header">
+              <h3>${nb.title}</h3>
+              <span class="project-badge" style="background:${nb.color};"></span>
+            </div>
+            <p>${nb.desc}</p>
+          </div>
+          <div class="project-card-footer">
+            <span><i class="fa-solid fa-code"></i> ${nb.cells.length} Cells</span>
+            <span>Open <i class="fa-solid fa-chevron-right"></i></span>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    function openNotebookEditor(id) {
+      activeNotebook = notebooks.find(n => n.id === id);
+      document.getElementById('notebooks-list-wrapper').style.display = 'none';
+      document.getElementById('notebook-editor').classList.add('active');
+      document.getElementById('nb-title').textContent = activeNotebook.title;
+      document.getElementById('nb-desc').textContent = activeNotebook.desc;
+      renderCells();
+    }
+
+    function closeNotebookEditor() {
+      document.getElementById('notebook-editor').classList.remove('active');
+      document.getElementById('notebooks-list-wrapper').style.display = 'block';
+    }
+
+    function renderCells() {
+      const container = document.getElementById('cell-container');
+      container.innerHTML = '';
+      activeNotebook.cells.forEach((cell, idx) => {
+        const cellEl = document.createElement('div');
+        cellEl.className = 'notebook-cell';
+        cellEl.innerHTML = `
+          <div class="cell-header">
+            <span>Cell [${idx + 1}]</span>
+            <i class="fa-solid fa-trash" style="cursor:pointer" onclick="deleteCell(${idx})"></i>
+          </div>
+          <textarea class="cell-textarea" id="cell-val-${idx}">${cell.code}</textarea>
+          <div class="cell-actions">
+            <button class="btn-run-cell" onclick="runCell(${idx})"><i class="fa-solid fa-play"></i> Run Code</button>
+          </div>
+          <div class="cell-output ${cell.output ? 'active' : ''}" id="cell-out-${idx}">${cell.output || ''}</div>
+        `;
+        container.appendChild(cellEl);
+      });
+    }
+
+    function addCell() {
+      if(!activeNotebook) return;
+      activeNotebook.cells.push({ id: Date.now(), code: '// New Cell', output: '' });
+      renderCells();
+      saveState();
+    }
+
+    function deleteCell(idx) {
+      activeNotebook.cells.splice(idx, 1);
+      renderCells();
+      saveState();
+    }
+
+    function runCell(idx) {
+      const code = document.getElementById(`cell-val-${idx}`).value;
+      activeNotebook.cells[idx].code = code;
+      const outputEl = document.getElementById(`cell-out-${idx}`);
+      try {
+        let logs = [];
+        const originalLog = console.log;
+        console.log = (...args) => logs.push(args.join(' '));
+        eval(code);
+        console.log = originalLog;
+        const res = logs.join('\n') || 'Executed successfully.';
+        outputEl.textContent = res;
+        outputEl.classList.add('active');
+        activeNotebook.cells[idx].output = res;
+      } catch (err) {
+        outputEl.textContent = 'Error: ' + err.message;
+        outputEl.classList.add('active');
+        activeNotebook.cells[idx].output = 'Error: ' + err.message;
+      }
+      saveState();
+    }
+
+    // ITEM MODALS LOGIC
+    function openCreateModal(type) {
+      createType = type;
+      document.getElementById('modal-title').textContent = type === 'project' ? 'Create New Project' : 'Create New Notebook';
+      document.getElementById('modal-submit-btn').onclick = handleCreateSubmit;
+      document.getElementById('create-modal').classList.add('active');
+    }
+
+    function closeCreateModal() { document.getElementById('create-modal').classList.remove('active'); }
+
+    function handleCreateSubmit() {
+      const title = document.getElementById('item-title-input').value.trim();
+      const desc = document.getElementById('item-desc-input').value.trim();
+      if(!title) return alert('Title is required');
+
+      const colors = ['#38bdf8', '#3b82f6', '#818cf8', '#a78bfa'];
+      const chosenColor = colors[Math.floor(Math.random() * colors.length)];
+
+      if(createType === 'project') {
+        projects.push({ id: Date.now(), title, desc: desc || 'No description', color: chosenColor, files: [] });
+        renderProjects();
+      } else {
+        notebooks.push({ id: Date.now(), title, desc: desc || 'No description', color: chosenColor, cells: [] });
+        renderNotebooks();
+      }
+
+      saveState();
+
+      closeCreateModal();
+      document.getElementById('item-title-input').value = '';
+      document.getElementById('item-desc-input').value = '';
+    }
+
+    // TYPING ANIMATION
+    const askText = "ASK";
+    const odaText = "ODA";
+    const askTarget = document.getElementById("typed-ask");
+    const odaTarget = document.getElementById("typed-oda");
+    let askIndex = 0, odaIndex = 0;
+
+    function typeASK() {
+      if (askIndex < askText.length) {
+        askTarget.textContent += askText.charAt(askIndex);
+        askIndex++;
+        setTimeout(typeASK, 180);
+      } else {
+        setTimeout(typeODA, 100);
+      }
+    }
+
+    function typeODA() {
+      if (odaIndex < odaText.length) {
+        odaTarget.textContent += odaText.charAt(odaIndex);
+        odaIndex++;
+        setTimeout(typeODA, 180);
+      } else {
+        setTimeout(() => {
+          document.getElementById("intro-screen").style.opacity = "0";
+          document.getElementById("intro-screen").style.visibility = "hidden";
+          document.getElementById("app").style.filter = "blur(0px)";
+        }, 800);
+      }
+    }
+
+    window.addEventListener("DOMContentLoaded", async () => {
+      await loadClientConfig();
+      initUserSession();
+      setTimeout(typeASK, 300);
+    });
+
+    function startNewChat() {
+      switchView('chat');
+      document.getElementById('chat-history').innerHTML = '';
+      document.getElementById('greeting-box').style.display = 'block';
+    }
+  </script>
+</body>
+</html>
