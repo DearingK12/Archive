@@ -16,7 +16,7 @@ def sub(a, b):
 
 def divide(a, b):
     if b == 0:
-        return "ERROR: Cannot divide by 0"
+        return "ERROR: Cannot divide by 0 you silly goose!! Try another number!!"
     return a / b
 
 
