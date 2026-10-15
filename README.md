@@ -6,7 +6,7 @@ Welcome to my project archive! This repository contains my projects, experiments
 ## Projects
 
 <!-- PROJECTS:START -->
-_Project list will be generated automatically._
+- **[Archive](./Archive/)**
 <!-- PROJECTS:END -->
 
 ## About
