@@ -1,7 +1,7 @@
 
 # Project Archive
 
-Welcome to my project archive! This repository contains my projects, experiments, and development work.
+Welcome to Archive! This repository contains my projects, experiments, and development work.
 
 ## Projects
 
@@ -10,5 +10,8 @@ _No projects found yet._
 <!-- PROJECTS:END -->
 
 ## About
-
-More projects will be added over time.
+<!-- ABOUT:START -->
+My name is Koda Dearing and I am a Cyber Security student at UMKC.
+This reposity is to show case my Personal projects, School work amd over 
+practice. Please enjoy.
+<!-- ABOUT:END -->
