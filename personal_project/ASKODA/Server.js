@@ -2,24 +2,51 @@ const express = require('express');
 const dotenv = require('dotenv');
 const path = require('path');
 const fs = require('fs/promises');
+const crypto = require('crypto');
+const { promisify } = require('util');
 const cookie = require('cookie');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { OAuth2Client } = require('google-auth-library');
 const jwt = require('jsonwebtoken');
+const nodemailer = require('nodemailer');
 
 dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.ASKODA_DATA_DIR
+  ? path.resolve(process.env.ASKODA_DATA_DIR)
+  : path.join(__dirname, 'data');
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const SESSION_COOKIE = 'askoda_session';
+const scrypt = promisify(crypto.scrypt);
 const nodeEnv = (process.env.NODE_ENV || '').toLowerCase();
 const isProduction = nodeEnv === 'production';
 const sessionSecret = process.env.SESSION_SECRET;
 const googleClientId = process.env.GOOGLE_CLIENT_ID;
 const googleClient = googleClientId ? new OAuth2Client(googleClientId) : null;
+const smtpHost = process.env.SMTP_HOST;
+const smtpPort = Number(process.env.SMTP_PORT || 587);
+const smtpUser = process.env.SMTP_USER;
+const smtpPass = process.env.SMTP_PASS;
+const smtpFrom = process.env.SMTP_FROM;
+const smtpConfigured = Boolean(
+  smtpHost && Number.isInteger(smtpPort) && smtpPort > 0 && smtpPort <= 65535 &&
+  smtpFrom && ((smtpUser && smtpPass) || (!smtpUser && !smtpPass))
+);
+const mailTransport = smtpConfigured
+  ? nodemailer.createTransport({
+    host: smtpHost,
+    port: smtpPort,
+    secure: process.env.SMTP_SECURE === 'true' || smtpPort === 465,
+    ...(smtpUser ? { auth: { user: smtpUser, pass: smtpPass } } : {})
+  })
+  : null;
+const VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000;
+const VERIFICATION_RESEND_DELAY_MS = 60 * 1000;
+const MAX_VERIFICATION_ATTEMPTS = 5;
 
 function isPlaceholder(value) {
   return !value || /replace-with|your-google|generate-a-random/i.test(value);
@@ -42,7 +69,7 @@ app.use((req, res, next) => {
   }
   next();
 });
-app.use(express.json({ limit: '32kb' }));
+app.use(express.json({ limit: '2mb' }));
 app.use((req, res, next) => {
   req.setTimeout(35_000);
   res.setTimeout(35_000);
@@ -62,6 +89,13 @@ const chatLimiter = rateLimit({
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: { error: 'Chat rate limit reached. Please try again shortly.' }
+});
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many sign-in attempts. Please try again later.' }
 });
 app.use('/api', apiLimiter);
 
@@ -113,13 +147,114 @@ async function writeStateStore(store) {
   await fs.rename(temporaryFile, STATE_FILE);
 }
 
+let stateStoreWrite = Promise.resolve();
+function updateStateStore(update) {
+  const operation = stateStoreWrite.then(async () => {
+    const store = await readStateStore();
+    const result = await update(store);
+    await writeStateStore(store);
+    return result;
+  });
+  stateStoreWrite = operation.catch(() => {});
+  return operation;
+}
+
+async function readUserStore() {
+  try {
+    return JSON.parse(await fs.readFile(USERS_FILE, 'utf8'));
+  } catch (error) {
+    if (error.code === 'ENOENT') return {};
+    throw error;
+  }
+}
+
+async function writeUserStore(users) {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  const temporaryFile = `${USERS_FILE}.${process.pid}.tmp`;
+  await fs.writeFile(temporaryFile, JSON.stringify(users, null, 2), { mode: 0o600 });
+  await fs.rename(temporaryFile, USERS_FILE);
+}
+
+let userStoreWrite = Promise.resolve();
+function updateUserStore(update) {
+  const operation = userStoreWrite.then(async () => {
+    const users = await readUserStore();
+    const result = await update(users);
+    await writeUserStore(users);
+    return result;
+  });
+  userStoreWrite = operation.catch(() => {});
+  return operation;
+}
+
+function setSessionCookie(res, user, expiresIn = '7d') {
+  const sessionToken = jwt.sign(user, sessionSecret, {
+    algorithm: 'HS256',
+    expiresIn,
+    issuer: 'askoda'
+  });
+  res.setHeader('Set-Cookie', cookie.serialize(SESSION_COOKIE, sessionToken, {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: 'lax',
+    maxAge: expiresIn === '1d' ? 24 * 60 * 60 : 7 * 24 * 60 * 60,
+    path: '/'
+  }));
+}
+
+function publicUser(user) {
+  return { id: user.sub, name: user.name, email: user.email, picture: user.picture || null };
+}
+
+function verificationCodeHash(email, code) {
+  return crypto.createHmac('sha256', sessionSecret).update(`${email}:${code}`).digest('hex');
+}
+
+function verificationCodeMatches(email, code, expectedHash) {
+  if (typeof expectedHash !== 'string' || !/^[a-f0-9]{64}$/i.test(expectedHash)) return false;
+  const actualHash = Buffer.from(verificationCodeHash(email, code), 'hex');
+  const savedHash = Buffer.from(expectedHash, 'hex');
+  return crypto.timingSafeEqual(actualHash, savedHash);
+}
+
+async function sendVerificationCode(record) {
+  if (!mailTransport || !smtpFrom) throw new Error('SMTP email delivery is not configured.');
+  const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
+  await mailTransport.sendMail({
+    from: smtpFrom,
+    to: record.email,
+    subject: 'Your ASKODA verification code',
+    text: `Hello ${record.name},\n\nYour ASKODA verification code is ${code}.\n\nIt expires in 10 minutes. If you did not create this account, you can ignore this email.`,
+    disableFileAccess: true,
+    disableUrlAccess: true
+  });
+  record.verificationCodeHash = verificationCodeHash(record.email, code);
+  record.verificationExpiresAt = Date.now() + VERIFICATION_CODE_TTL_MS;
+  record.verificationSentAt = Date.now();
+  record.verificationAttempts = 0;
+}
+
+function verificationCooldown(record) {
+  const sentAt = Number(record.verificationSentAt) || 0;
+  return Math.max(0, VERIFICATION_RESEND_DELAY_MS - (Date.now() - sentAt));
+}
+
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 app.get('/api/config', (req, res) => {
-  res.json({ googleClientId: googleClientId || null, isProduction });
+  res.json({
+    googleClientId: googleClientId || null,
+    isProduction,
+    allowDemo: !isProduction,
+    smtpConfigured
+  });
 });
 
-app.post('/api/auth/google', requireSameOrigin, async (req, res) => {
+app.get('/api/auth/session', requireSession, (req, res) => {
+  res.json({ user: publicUser(req.user) });
+});
+
+app.post('/api/auth/google', requireSameOrigin, authLimiter, async (req, res) => {
   if (!googleClient || !googleClientId || !sessionSecret) {
     return res.status(503).json({ error: 'Google authentication is not configured.' });
   }
@@ -136,18 +271,182 @@ app.post('/api/auth/google', requireSameOrigin, async (req, res) => {
       return res.status(401).json({ error: 'Google account could not be verified.' });
     }
 
-    const sessionToken = jwt.sign(
-      { sub: payload.sub, name: payload.name, email: payload.email, picture: payload.picture },
-      sessionSecret,
-      { algorithm: 'HS256', expiresIn: '7d', issuer: 'askoda' }
-    );
-    res.setHeader('Set-Cookie', cookie.serialize(SESSION_COOKIE, sessionToken, {
-      httpOnly: true, secure: isProduction, sameSite: 'lax', maxAge: 7 * 24 * 60 * 60, path: '/'
-    }));
-    res.json({ user: { id: payload.sub, name: payload.name, email: payload.email, picture: payload.picture } });
+    const user = { sub: payload.sub, name: payload.name, email: payload.email, picture: payload.picture };
+    setSessionCookie(res, user);
+    res.json({ user: publicUser(user) });
   } catch (error) {
     console.error('Google authentication error:', error.message);
     res.status(401).json({ error: 'Google authentication failed.' });
+  }
+});
+
+app.post('/api/auth/register', requireSameOrigin, authLimiter, async (req, res) => {
+  if (!sessionSecret) return res.status(503).json({ error: 'Authentication is not configured.' });
+  if (!smtpConfigured) return res.status(503).json({ error: 'Email verification is not configured. Set the SMTP environment variables.' });
+
+  const { name, email, password } = req.body || {};
+  if (typeof name !== 'string' || name.trim().length < 1 || name.trim().length > 80) {
+    return res.status(400).json({ error: 'Name must be between 1 and 80 characters.' });
+  }
+  if (typeof email !== 'string' || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Enter a valid email address.' });
+  }
+  if (typeof password !== 'string' || password.length < 12 || password.length > 1024) {
+    return res.status(400).json({ error: 'Password must be between 12 and 1,024 characters.' });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  try {
+    const salt = crypto.randomBytes(16);
+    const passwordHash = await scrypt(password, salt, 64);
+    const result = await updateUserStore(async users => {
+      let record = users[normalizedEmail];
+      if (record?.verifiedAt) return { kind: 'existing' };
+      if (record && verificationCooldown(record) > 0) {
+        return { kind: 'cooldown', retryAfterSeconds: Math.ceil(verificationCooldown(record) / 1000) };
+      }
+      if (!record) {
+        record = {
+          id: crypto.randomUUID(),
+          name: name.trim(),
+          email: normalizedEmail,
+          salt: salt.toString('hex'),
+          passwordHash: Buffer.from(passwordHash).toString('hex')
+        };
+        users[normalizedEmail] = record;
+      }
+      await sendVerificationCode(record);
+      return { kind: 'verification-sent' };
+    });
+    if (result.kind === 'existing') {
+      return res.status(409).json({ error: 'An account with that email already exists. Please sign in.' });
+    }
+    if (result.kind === 'cooldown') {
+      res.set('Retry-After', String(result.retryAfterSeconds));
+    }
+    res.status(202).json({
+      verificationRequired: true,
+      message: 'Enter the verification code sent to your email.',
+      ...(result.retryAfterSeconds ? { retryAfterSeconds: result.retryAfterSeconds } : {})
+    });
+  } catch (error) {
+    console.error('Account registration email error:', error.message);
+    res.status(503).json({ error: 'Could not send the verification email. Check SMTP settings and try again.' });
+  }
+});
+
+app.post('/api/auth/resend-verification', requireSameOrigin, authLimiter, async (req, res) => {
+  if (!sessionSecret) return res.status(503).json({ error: 'Authentication is not configured.' });
+  if (!smtpConfigured) return res.status(503).json({ error: 'Email verification is not configured. Set the SMTP environment variables.' });
+  const { email } = req.body || {};
+  if (typeof email !== 'string' || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Enter a valid email address.' });
+  }
+
+  try {
+    const normalizedEmail = email.trim().toLowerCase();
+    await updateUserStore(async users => {
+      const record = users[normalizedEmail];
+      if (!record || record.verifiedAt || verificationCooldown(record) > 0) return { sent: false };
+      await sendVerificationCode(record);
+      return { sent: true };
+    });
+    res.status(202).json({
+      message: 'If the account needs verification, a code has been sent or is still within the resend delay.'
+    });
+  } catch (error) {
+    console.error('Verification email resend error:', error.message);
+    res.status(503).json({ error: 'Could not send the verification email. Check SMTP settings and try again.' });
+  }
+});
+
+app.post('/api/auth/verify-email', requireSameOrigin, authLimiter, async (req, res) => {
+  if (!sessionSecret) return res.status(503).json({ error: 'Authentication is not configured.' });
+
+  const { email, code } = req.body || {};
+  if (typeof email !== 'string' || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+      typeof code !== 'string' || !/^\d{6}$/.test(code)) {
+    return res.status(400).json({ error: 'Enter your email and six-digit verification code.' });
+  }
+
+  try {
+    const normalizedEmail = email.trim().toLowerCase();
+    const result = await updateUserStore(users => {
+      const record = users[normalizedEmail];
+      if (!record || record.verifiedAt || !record.verificationCodeHash) return { error: 'invalid' };
+      if (Date.now() > Number(record.verificationExpiresAt)) {
+        delete record.verificationCodeHash;
+        delete record.verificationExpiresAt;
+        delete record.verificationAttempts;
+        return { error: 'expired' };
+      }
+      if ((Number(record.verificationAttempts) || 0) >= MAX_VERIFICATION_ATTEMPTS) {
+        delete record.verificationCodeHash;
+        delete record.verificationExpiresAt;
+        delete record.verificationAttempts;
+        return { error: 'locked' };
+      }
+      if (!verificationCodeMatches(normalizedEmail, code, record.verificationCodeHash)) {
+        record.verificationAttempts = (Number(record.verificationAttempts) || 0) + 1;
+        if (record.verificationAttempts >= MAX_VERIFICATION_ATTEMPTS) {
+          delete record.verificationCodeHash;
+          delete record.verificationExpiresAt;
+          delete record.verificationAttempts;
+          return { error: 'locked' };
+        }
+        return { error: 'invalid' };
+      }
+
+      record.verifiedAt = new Date().toISOString();
+      delete record.verificationCodeHash;
+      delete record.verificationExpiresAt;
+      delete record.verificationSentAt;
+      delete record.verificationAttempts;
+      return { user: { sub: `account:${record.id}`, name: record.name, email: record.email } };
+    });
+
+    if (result.error === 'expired') return res.status(410).json({ error: 'That code has expired. Request a new one.' });
+    if (result.error === 'locked') return res.status(429).json({ error: 'Too many incorrect codes. Request a new code.' });
+    if (result.error) return res.status(400).json({ error: 'The verification code is invalid. Check it and try again.' });
+    setSessionCookie(res, result.user);
+    res.json({ user: publicUser(result.user) });
+  } catch (error) {
+    console.error('Email verification error:', error);
+    res.status(500).json({ error: 'Could not verify the email address.' });
+  }
+});
+
+app.post('/api/auth/login', requireSameOrigin, authLimiter, async (req, res) => {
+  if (!sessionSecret) return res.status(503).json({ error: 'Authentication is not configured.' });
+
+  const { email, password } = req.body || {};
+  if (typeof email !== 'string' || email.length > 254 || typeof password !== 'string' || password.length > 1024) {
+    return res.status(400).json({ error: 'Enter your email and password.' });
+  }
+
+  try {
+    const normalizedEmail = email.trim().toLowerCase();
+    const users = await readUserStore();
+    const record = users[normalizedEmail];
+    const salt = record ? Buffer.from(record.salt, 'hex') : Buffer.alloc(16);
+    const expectedHash = record ? Buffer.from(record.passwordHash, 'hex') : Buffer.alloc(64);
+    const actualHash = Buffer.from(await scrypt(password, salt, 64));
+    if (!record || expectedHash.length !== actualHash.length || !crypto.timingSafeEqual(expectedHash, actualHash)) {
+      return res.status(401).json({ error: 'Email or password is incorrect.' });
+    }
+    if (!record.verifiedAt) {
+      return res.status(403).json({
+        error: 'Verify your email address before signing in.',
+        verificationRequired: true
+      });
+    }
+
+    const user = { sub: `account:${record.id}`, name: record.name, email: record.email };
+    setSessionCookie(res, user);
+    res.json({ user: publicUser(user) });
+  } catch (error) {
+    console.error('Account sign-in error:', error);
+    res.status(500).json({ error: 'Could not sign in.' });
   }
 });
 
@@ -155,13 +454,9 @@ app.post('/api/auth/demo', requireSameOrigin, (req, res) => {
   if (isProduction) return res.status(404).json({ error: 'Not found.' });
   if (!sessionSecret) return res.status(503).json({ error: 'Authentication is not configured.' });
 
-  const sessionToken = jwt.sign({ sub: 'demo-user', name: 'Demo Creator' }, sessionSecret, {
-    algorithm: 'HS256', expiresIn: '1d', issuer: 'askoda'
-  });
-  res.setHeader('Set-Cookie', cookie.serialize(SESSION_COOKIE, sessionToken, {
-    httpOnly: true, secure: false, sameSite: 'lax', maxAge: 24 * 60 * 60, path: '/'
-  }));
-  res.json({ user: { id: 'demo-user', name: 'Demo Creator', email: 'creator@askoda.ai' } });
+  const user = { sub: 'demo-user', name: 'Demo Creator', email: 'creator@askoda.ai' };
+  setSessionCookie(res, user, '1d');
+  res.json({ user: publicUser(user) });
 });
 
 app.post('/api/auth/signout', requireSameOrigin, (req, res) => {
@@ -180,19 +475,19 @@ app.get('/api/state', requireSession, async (req, res) => {
 });
 
 app.put('/api/state', requireSameOrigin, requireSession, async (req, res) => {
-  const { settings, projects, notebooks } = req.body || {};
-  if (!settings || !Array.isArray(projects) || !Array.isArray(notebooks)) {
+  const { settings, projects, notebooks, conversations = [] } = req.body || {};
+  if (!settings || !Array.isArray(projects) || !Array.isArray(notebooks) || !Array.isArray(conversations)) {
     return res.status(400).json({ error: 'Workspace state has an invalid shape.' });
   }
-  if (JSON.stringify({ settings, projects, notebooks }).length > 2_000_000) {
+  if (JSON.stringify({ settings, projects, notebooks, conversations }).length > 2_000_000) {
     return res.status(413).json({ error: 'Workspace state is too large.' });
   }
 
   try {
-    const store = await readStateStore();
     const updatedAt = new Date().toISOString();
-    store[req.user.sub] = { settings, projects, notebooks, updatedAt };
-    await writeStateStore(store);
+    await updateStateStore(store => {
+      store[req.user.sub] = { settings, projects, notebooks, conversations, updatedAt };
+    });
     res.json({ saved: true, updatedAt });
   } catch (error) {
     console.error('State write error:', error);
@@ -201,12 +496,23 @@ app.put('/api/state', requireSameOrigin, requireSession, async (req, res) => {
 });
 
 app.post('/api/chat', requireSameOrigin, chatLimiter, requireSession, async (req, res) => {
-  const { prompt, systemContext = '' } = req.body || {};
-  if (typeof prompt !== 'string' || prompt.trim().length === 0 || prompt.length > 12000) {
-    return res.status(400).json({ error: 'Prompt must be between 1 and 12,000 characters.' });
-  }
+  const { prompt, messages, systemContext = '' } = req.body || {};
   if (typeof systemContext !== 'string' || systemContext.length > 12000) {
     return res.status(400).json({ error: 'System context is too large.' });
+  }
+  let conversation;
+  if (Array.isArray(messages)) {
+    if (messages.length === 0 || messages.length > 20 ||
+        messages.some(message => !message || !['user', 'assistant'].includes(message.role) ||
+          typeof message.content !== 'string' || !message.content.trim() || message.content.length > 12000) ||
+        messages.reduce((total, message) => total + message.content.length, 0) > 40000) {
+      return res.status(400).json({ error: 'Conversation messages are invalid or too large.' });
+    }
+    conversation = messages;
+  } else if (typeof prompt === 'string' && prompt.trim().length > 0 && prompt.length <= 12000) {
+    conversation = [{ role: 'user', content: prompt }];
+  } else {
+    return res.status(400).json({ error: 'Prompt must be between 1 and 12,000 characters.' });
   }
   if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'AI service is not configured.' });
 
@@ -216,7 +522,7 @@ app.post('/api/chat', requireSameOrigin, chatLimiter, requireSession, async (req
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-        messages: [{ role: 'system', content: systemContext }, { role: 'user', content: prompt }],
+        messages: [{ role: 'system', content: systemContext }, ...conversation.slice(-12)],
         max_tokens: 2000
       }),
       signal: AbortSignal.timeout(30_000)
@@ -229,6 +535,14 @@ app.post('/api/chat', requireSameOrigin, chatLimiter, requireSession, async (req
     console.error('AI provider error:', error.message);
     res.status(502).json({ error: 'Failed to communicate with the AI provider.' });
   }
+});
+
+app.get('/notebook-worker.js', (req, res) => {
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'none'; script-src 'self' 'unsafe-eval'; connect-src 'none'; worker-src 'none'; object-src 'none';"
+  );
+  res.sendFile(path.join(__dirname, 'Public', 'notebook-worker.js'));
 });
 
 app.use(express.static(path.join(__dirname, 'Public'), { dotfiles: 'deny', maxAge: isProduction ? '1d' : 0 }));

@@ -129,6 +129,56 @@
       display: flex; flex-direction: column; gap: 8px;
     }
 
+    .chat-sessions {
+      margin-top: 20px;
+      max-height: 30vh;
+      overflow-y: auto;
+    }
+
+    .chat-sessions h3 {
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      margin: 0 0 8px 10px;
+      text-transform: uppercase;
+    }
+
+    .chat-session-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+
+    .chat-session-open {
+      background: transparent;
+      border: 0;
+      border-radius: 8px;
+      color: var(--text-muted);
+      cursor: pointer;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      padding: 9px 10px;
+      text-align: left;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .chat-session-item.active .chat-session-open,
+    .chat-session-open:hover { background: var(--card-bg); color: var(--text-main); }
+
+    .chat-session-delete {
+      background: transparent;
+      border: 0;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 8px;
+    }
+
+    .chat-session-delete:hover { color: #f87171; }
+
     .sidebar-menu li a {
       color: var(--text-muted);
       text-decoration: none;
@@ -278,6 +328,16 @@
     }
 
     .projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+    .project-search {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      color: var(--text-main);
+      margin: 0 0 20px;
+      max-width: 360px;
+      padding: 10px 12px;
+      width: 100%;
+    }
 
     .project-card {
       background: var(--card-bg); border: 1px solid var(--border-color);
@@ -362,6 +422,11 @@
           <i class="fa-solid fa-plus"></i> New Chat
         </button>
 
+        <section class="chat-sessions" aria-label="Saved chats">
+          <h3>Recent chats</h3>
+          <div id="chat-sessions-list"></div>
+        </section>
+
         <ul class="sidebar-menu">
           <li><a id="nav-chat" class="active" onclick="switchView('chat')"><i class="fa-regular fa-message"></i> Chat & Prompts</a></li>
           <li><a id="nav-projects" onclick="switchView('projects')"><i class="fa-solid fa-folder-closed"></i> Projects</a></li>
@@ -387,7 +452,7 @@
         <button class="btn-auth btn-login" id="btn-login-trigger" onclick="openAuthModal()">
           <i class="fa-brands fa-google"></i> Sign In
         </button>
-        <button class="btn-auth btn-signup" id="btn-signup-trigger" onclick="openAuthModal()">Sign Up</button>
+        <button class="btn-auth btn-signup" id="btn-signup-trigger" onclick="openAuthModal('register')">Sign Up</button>
         <button class="btn-auth btn-logout" id="btn-logout" onclick="handleSignOut()">
           <i class="fa-solid fa-right-from-bracket"></i> Sign Out
         </button>
@@ -395,11 +460,11 @@
 
       <!-- VIEW 1: CHAT SYSTEM -->
       <div id="view-chat" class="view-panel chat-view active">
+        <div id="context-banner" class="active-context-banner">
+          <i class="fa-solid fa-folder-open"></i> Active Context: <span id="active-project-name">None</span>
+          <i class="fa-solid fa-xmark" style="cursor:pointer; margin-left:8px;" onclick="clearContext()"></i>
+        </div>
         <div class="greeting-container" id="greeting-box">
-          <div id="context-banner" class="active-context-banner">
-            <i class="fa-solid fa-folder-open"></i> Active Context: <span id="active-project-name">None</span>
-            <i class="fa-solid fa-xmark" style="cursor:pointer; margin-left:8px;" onclick="clearContext()"></i>
-          </div>
           <h1>Hello, I'm <span style="color: var(--accent-skyblue);">ASK</span>ODA.</h1>
           <p id="greeting-subtext">How can I assist your workflow or ideas today?</p>
         </div>
@@ -448,6 +513,7 @@
             </button>
           </div>
 
+          <input class="project-search" id="project-search" type="search" placeholder="Search projects..." oninput="renderProjects()">
           <div class="projects-grid" id="projects-grid"></div>
         </div>
 
@@ -468,11 +534,14 @@
 
           <div class="files-list">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
-              <h4 style="font-weight: 500;">Project Context Files</h4>
+              <div>
+                <h4 style="font-weight: 500;">Project Context Files</h4>
+                <small style="color:var(--text-muted);">Text files only (.txt, .md, .csv, .json), up to 100 KB each. Contents are used in project chats.</small>
+              </div>
               <label for="project-file-input" class="btn-auth btn-signup" style="cursor:pointer;">
                 <i class="fa-solid fa-upload"></i> Upload Context File
               </label>
-              <input type="file" id="project-file-input" onchange="uploadProjectFile(event)">
+              <input type="file" id="project-file-input" accept=".txt,.md,.csv,.json" onchange="uploadProjectFile(event)">
             </div>
             <div id="project-files-container"></div>
           </div>
@@ -485,11 +554,14 @@
           <div class="projects-header">
             <div>
               <h2>Interactive Notebooks</h2>
-              <p style="color: var(--text-muted); font-size: 0.95rem;">Execute Python/JS code cells alongside interactive AI notes.</p>
+              <p style="color: var(--text-muted); font-size: 0.95rem;">Run JavaScript cells, keep notes, and import or export Jupyter notebooks.</p>
             </div>
             <button class="btn-create-project" onclick="openCreateModal('notebook')">
               <i class="fa-solid fa-plus"></i> New Notebook
             </button>
+            <label for="notebook-upload" class="btn-auth btn-login" style="cursor:pointer;">
+              <i class="fa-solid fa-file-arrow-up"></i> Import Notebook
+            </label>
           </div>
 
           <div class="projects-grid" id="notebooks-grid"></div>
@@ -506,8 +578,14 @@
               <p id="nb-desc" style="color: var(--text-muted); font-size: 0.95rem;">Notebook Description</p>
             </div>
             <div style="display:flex; gap:10px;">
+              <button class="btn-auth btn-login" onclick="exportNotebook()">
+                <i class="fa-solid fa-download"></i> Export
+              </button>
               <button class="btn-auth btn-login" style="border: 1px solid var(--border-color);" onclick="addCell()">
-                <i class="fa-solid fa-plus"></i> Add Cell
+                <i class="fa-solid fa-code"></i> Add Code
+              </button>
+              <button class="btn-auth btn-login" onclick="addCell('markdown')">
+                <i class="fa-solid fa-note-sticky"></i> Add Note
               </button>
             </div>
           </div>
@@ -530,8 +608,53 @@
       <!-- Google Sign-In -->
       <div id="google-signin-container" style="display: flex; justify-content: center; margin-bottom: 20px;"></div>
 
+      <form id="email-auth-form" style="text-align:left;">
+        <p id="email-auth-status" role="status" aria-live="polite" style="color:var(--text-muted);font-size:0.85rem;margin-bottom:12px;"></p>
+        <div class="form-group" id="auth-name-group" hidden>
+          <label for="auth-name">Name</label>
+          <input type="text" id="auth-name" maxlength="80" autocomplete="name">
+        </div>
+        <div class="form-group">
+          <label for="auth-email">Email</label>
+          <input type="email" id="auth-email" maxlength="254" autocomplete="email" required>
+        </div>
+        <div class="form-group">
+          <label for="auth-password">Password</label>
+          <input type="password" id="auth-password" maxlength="1024" autocomplete="current-password" required>
+          <small id="auth-password-help" style="color:var(--text-muted);">Use the password for your ASKODA account.</small>
+        </div>
+        <button class="btn-auth btn-signup" id="email-auth-submit" type="submit" style="width:100%;justify-content:center;">
+          Sign In with Email
+        </button>
+        <button class="btn-auth btn-login" id="auth-mode-toggle" type="button" style="width:100%;justify-content:center;margin-top:8px;">
+          Create an account
+        </button>
+      </form>
+
+      <form id="email-verify-form" style="text-align:left;" hidden>
+        <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:12px;">
+          Enter the six-digit code sent to <strong id="verification-email" style="color:var(--text-main);"></strong>.
+          The code expires after 10 minutes.
+        </p>
+        <div class="form-group">
+          <label for="verification-code">Verification code</label>
+          <input type="text" id="verification-code" inputmode="numeric" autocomplete="one-time-code"
+            pattern="[0-9]{6}" minlength="6" maxlength="6" required>
+        </div>
+        <p id="verification-status" role="status" aria-live="polite" style="color:var(--text-muted);font-size:0.85rem;"></p>
+        <button class="btn-auth btn-signup" id="verification-submit" type="submit" style="width:100%;justify-content:center;">
+          Verify Email
+        </button>
+        <button class="btn-auth btn-login" id="verification-resend" type="button" style="width:100%;justify-content:center;margin-top:8px;">
+          Resend Code
+        </button>
+        <button class="btn-auth btn-login" id="verification-back" type="button" style="width:100%;justify-content:center;margin-top:8px;">
+          Back to Sign In
+        </button>
+      </form>
+
       <p style="font-size: 0.8rem; color: var(--text-muted);">OR DEMO ACCESS</p>
-      <button class="btn-auth btn-login" style="width: 100%; margin-top: 10px; justify-content: center;" onclick="mockGoogleLogin()">
+      <button class="btn-auth btn-login" id="demo-login" style="width: 100%; margin-top: 10px; justify-content: center;" onclick="mockGoogleLogin()">
         Continue as Demo User
       </button>
 
@@ -588,10 +711,9 @@
   <script>
     // State Store & Personal Settings
     let currentUser = JSON.parse(localStorage.getItem('askoda_user')) || null;
-    let userSettings = JSON.parse(localStorage.getItem('askoda_settings')) || {
-      name: 'User',
-      pronouns: ''
-    };
+    let userSettings = currentUser && localStorage.getItem('askoda_settings_user') === currentUser.id
+      ? JSON.parse(localStorage.getItem('askoda_settings')) || { name: 'User', pronouns: '' }
+      : { name: 'User', pronouns: '' };
 
     let createType = 'project';
     let projects = [
@@ -605,11 +727,16 @@
       }
     ];
 
+    let conversations = [];
+    let activeConversationId = null;
+    let authMode = 'login';
     let activeProject = null;
     let activeNotebook = null;
     let stateLoadPromise = null;
+    let stateLoadUserId = null;
 
-    const appConfig = { googleClientId: null };
+    const appConfig = { googleClientId: null, allowDemo: true, smtpConfigured: false };
+    let pendingVerificationEmail = null;
 
     async function loadClientConfig() {
       try {
@@ -617,6 +744,10 @@
         if (!response.ok) return;
         const config = await response.json();
         appConfig.googleClientId = config.googleClientId || null;
+        appConfig.allowDemo = config.allowDemo === true;
+        appConfig.smtpConfigured = config.smtpConfigured === true;
+        document.getElementById('demo-login').hidden = !appConfig.allowDemo;
+        setAuthMode(authMode);
         if (window.google?.accounts?.id && appConfig.googleClientId) {
           google.accounts.id.initialize({
             client_id: appConfig.googleClientId,
@@ -647,17 +778,195 @@
 
         // Update greeting
         document.getElementById('greeting-subtext').textContent = `Welcome back, ${userSettings.name || currentUser.name}. How can I help today?`;
-        stateLoadPromise = loadWorkspaceState();
+        if (stateLoadUserId !== currentUser.id) {
+          stateLoadUserId = currentUser.id;
+          stateLoadPromise = loadWorkspaceState();
+        }
       } else {
         document.getElementById('btn-login-trigger').style.display = 'inline-flex';
         document.getElementById('btn-signup-trigger').style.display = 'inline-flex';
         document.getElementById('btn-logout').style.display = 'none';
         document.getElementById('user-badge').style.display = 'none';
       }
+      renderChatSessions();
     }
 
-    function openAuthModal() { document.getElementById('auth-modal').classList.add('active'); }
-    function closeAuthModal() { document.getElementById('auth-modal').classList.remove('active'); }
+    function openAuthModal(mode = 'login') {
+      setAuthMode(mode);
+      document.getElementById('auth-modal').classList.add('active');
+    }
+    function closeAuthModal() {
+      document.getElementById('auth-modal').classList.remove('active');
+      showEmailCredentials();
+    }
+
+    function setAuthMode(mode) {
+      authMode = mode;
+      const registering = mode === 'register';
+      document.getElementById('auth-name-group').hidden = !registering;
+      document.getElementById('auth-name').required = registering;
+      document.getElementById('auth-password').autocomplete = registering ? 'new-password' : 'current-password';
+      document.getElementById('auth-password').minLength = registering ? 12 : 0;
+      document.getElementById('auth-password-help').textContent = registering
+        ? 'Use at least 12 characters.'
+        : 'Use the password for your ASKODA account.';
+      document.getElementById('email-auth-submit').textContent = registering ? 'Create Account' : 'Sign In with Email';
+      document.getElementById('auth-mode-toggle').textContent = registering
+        ? 'I already have an account'
+        : 'Create an account';
+      const status = document.getElementById('email-auth-status');
+      if (registering && !appConfig.smtpConfigured) {
+        status.textContent = 'Email sign-up is unavailable until SMTP email delivery is configured.';
+      } else {
+        status.textContent = '';
+      }
+      document.getElementById('email-auth-submit').disabled = registering && !appConfig.smtpConfigured;
+    }
+
+    function activateSignedInUser(user) {
+      currentUser = user;
+      if (!userSettings.name || userSettings.name === 'User') userSettings.name = user.name || 'User';
+      localStorage.setItem('askoda_user', JSON.stringify(currentUser));
+      localStorage.setItem('askoda_settings', JSON.stringify(userSettings));
+      localStorage.setItem('askoda_settings_user', currentUser.id);
+      closeAuthModal();
+      initUserSession();
+    }
+
+    async function handleEmailAuth(event) {
+      event.preventDefault();
+      const registering = authMode === 'register';
+      const payload = {
+        email: document.getElementById('auth-email').value.trim(),
+        password: document.getElementById('auth-password').value
+      };
+      if (registering) payload.name = document.getElementById('auth-name').value.trim();
+
+      const submit = document.getElementById('email-auth-submit');
+      submit.disabled = true;
+      try {
+        const response = await fetch(registering ? '/api/auth/register' : '/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        if (data.verificationRequired) {
+          showEmailVerification(payload.email, data.message || data.error || 'Verify your email to continue.');
+          return;
+        }
+        if (registering && response.status === 202) {
+          showEmailVerification(payload.email, data.message || 'A verification code has been sent to your email.');
+          document.getElementById('auth-password').value = '';
+          return;
+        }
+        if (!response.ok || !data.user) throw new Error(data.error || 'Email sign-in failed.');
+        activateSignedInUser(data.user);
+        document.getElementById('email-auth-form').reset();
+        setAuthMode('login');
+      } catch (error) {
+        alert(error.message);
+      } finally {
+        submit.disabled = false;
+      }
+    }
+
+    function showEmailVerification(email, message) {
+      pendingVerificationEmail = email.trim().toLowerCase();
+      document.getElementById('verification-email').textContent = pendingVerificationEmail;
+      document.getElementById('verification-code').value = '';
+      document.getElementById('verification-status').textContent = message;
+      document.getElementById('email-auth-form').hidden = true;
+      document.getElementById('email-verify-form').hidden = false;
+      document.getElementById('google-signin-container').hidden = true;
+      document.getElementById('email-verify-form').style.display = 'block';
+    }
+
+    function showEmailCredentials() {
+      pendingVerificationEmail = null;
+      document.getElementById('email-verify-form').hidden = true;
+      document.getElementById('email-verify-form').style.display = 'none';
+      document.getElementById('email-auth-form').hidden = false;
+      document.getElementById('google-signin-container').hidden = false;
+      document.getElementById('verification-code').value = '';
+    }
+
+    async function handleEmailVerification(event) {
+      event.preventDefault();
+      if (!pendingVerificationEmail) return;
+      const submit = document.getElementById('verification-submit');
+      submit.disabled = true;
+      try {
+        const response = await fetch('/api/auth/verify-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            email: pendingVerificationEmail,
+            code: document.getElementById('verification-code').value.trim()
+          })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.user) {
+          if (response.status === 410 || response.status === 429) {
+            document.getElementById('verification-status').textContent = data.error || 'Request a new code to continue.';
+          } else {
+            document.getElementById('verification-status').textContent = data.error || 'Email verification failed.';
+          }
+          return;
+        }
+        document.getElementById('email-auth-form').reset();
+        activateSignedInUser(data.user);
+      } catch (error) {
+        document.getElementById('verification-status').textContent = error.message;
+      } finally {
+        submit.disabled = false;
+      }
+    }
+
+    async function resendVerificationCode() {
+      if (!pendingVerificationEmail) return;
+      const resend = document.getElementById('verification-resend');
+      resend.disabled = true;
+      try {
+        const response = await fetch('/api/auth/resend-verification', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ email: pendingVerificationEmail })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not resend verification code.');
+        document.getElementById('verification-status').textContent = data.message;
+      } catch (error) {
+        document.getElementById('verification-status').textContent = error.message;
+      } finally {
+        setTimeout(() => { resend.disabled = false; }, 1000);
+      }
+    }
+
+    async function restoreUserSession() {
+      try {
+        const response = await fetch('/api/auth/session', { credentials: 'same-origin' });
+        if (!response.ok) {
+          clearSignedInWorkspace();
+          initUserSession();
+          return;
+        }
+        const data = await response.json();
+        if (currentUser?.id !== data.user.id) {
+          userSettings = { name: data.user.name || 'User', pronouns: '' };
+        }
+        currentUser = data.user;
+        localStorage.setItem('askoda_user', JSON.stringify(currentUser));
+        initUserSession();
+      } catch (error) {
+        clearSignedInWorkspace();
+        console.error('Could not restore the ASKODA session:', error);
+        initUserSession();
+      }
+    }
 
     // Google JWT Credential Handler
     async function handleGoogleCredentialResponse(response) {
@@ -671,11 +980,7 @@
         const data = await authResponse.json();
         if (!authResponse.ok || !data.user) throw new Error(data.error || 'Sign in failed.');
 
-        currentUser = data.user;
-        if(!userSettings.name || userSettings.name === 'User') userSettings.name = currentUser.name;
-        saveState();
-        closeAuthModal();
-        initUserSession();
+        activateSignedInUser(data.user);
       } catch (error) {
         alert(error.message);
       }
@@ -686,20 +991,51 @@
         const authResponse = await fetch('/api/auth/demo', { method: 'POST', credentials: 'same-origin' });
         const data = await authResponse.json();
         if (!authResponse.ok || !data.user) throw new Error(data.error || 'Demo sign in failed.');
-        currentUser = data.user;
-        if(!userSettings.name || userSettings.name === 'User') userSettings.name = 'Demo Creator';
-        saveState();
-        closeAuthModal();
-        initUserSession();
+        activateSignedInUser(data.user);
       } catch (error) {
         alert(error.message);
       }
     }
 
-    async function handleSignOut() {
-      await fetch('/api/auth/signout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+    function clearSignedInWorkspace() {
       currentUser = null;
+      stateLoadUserId = null;
+      conversations = [];
+      activeConversationId = null;
+      activeProject = null;
+      activeNotebook = null;
+      projects = [];
+      notebooks = [];
+      userSettings = { name: 'User', pronouns: '' };
       localStorage.removeItem('askoda_user');
+      localStorage.removeItem('askoda_settings');
+      localStorage.removeItem('askoda_settings_user');
+      document.getElementById('chat-history').replaceChildren();
+      document.getElementById('greeting-box').style.display = 'block';
+      document.getElementById('context-banner').style.display = 'none';
+      document.getElementById('setting-name').value = '';
+      document.getElementById('setting-pronouns').value = '';
+      closeSettingsModal();
+      closeAuthModal();
+      closeProjectWorkspace();
+      closeNotebookEditor();
+      renderProjects();
+      renderNotebooks();
+      renderChatSessions();
+    }
+
+    async function handleSignOut() {
+      try {
+        const response = await fetch('/api/auth/signout', {
+          method: 'POST',
+          credentials: 'same-origin'
+        });
+        if (!response.ok) throw new Error('Could not sign out. Please try again.');
+      } catch (error) {
+        alert(error.message);
+        return;
+      }
+      clearSignedInWorkspace();
       initUserSession();
     }
 
@@ -724,32 +1060,45 @@
     function saveState() {
       localStorage.setItem('askoda_user', JSON.stringify(currentUser));
       localStorage.setItem('askoda_settings', JSON.stringify(userSettings));
+      if (currentUser) localStorage.setItem('askoda_settings_user', currentUser.id);
+      else localStorage.removeItem('askoda_settings_user');
       persistWorkspaceState();
     }
 
     async function loadWorkspaceState() {
       if (!currentUser) return;
+      const loadingUserId = currentUser.id;
 
       try {
         const response = await fetch('/api/state', { credentials: 'same-origin' });
+        if (!currentUser || currentUser.id !== loadingUserId) return;
         if (response.status === 401) {
-          currentUser = null;
-          localStorage.removeItem('askoda_user');
+          clearSignedInWorkspace();
           initUserSession();
           return;
         }
         if (!response.ok) return;
         const savedState = await response.json();
-        if (!savedState) return;
+        if (!currentUser || currentUser.id !== loadingUserId) return;
+        if (!savedState) {
+          renderProjects();
+          renderNotebooks();
+          saveState();
+          return;
+        }
 
         if (savedState.settings) userSettings = { ...userSettings, ...savedState.settings };
         if (Array.isArray(savedState.projects)) projects = savedState.projects;
         if (Array.isArray(savedState.notebooks)) notebooks = savedState.notebooks;
+        if (Array.isArray(savedState.conversations)) conversations = savedState.conversations;
         localStorage.setItem('askoda_settings', JSON.stringify(userSettings));
+        localStorage.setItem('askoda_settings_user', currentUser.id);
         document.getElementById('user-name-display').textContent = userSettings.name || currentUser.name;
         document.getElementById('greeting-subtext').textContent = `Welcome back, ${userSettings.name || currentUser.name}. How can I help today?`;
         renderProjects();
         renderNotebooks();
+        renderChatSessions();
+        if (activeConversationId) openConversation(activeConversationId);
       } catch (error) {
         console.warn('Workspace state is using local cache:', error);
       }
@@ -759,19 +1108,121 @@
       if (!currentUser) return;
 
       try {
-        await fetch('/api/state', {
+        const response = await fetch('/api/state', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
           body: JSON.stringify({
             settings: userSettings,
             projects,
-            notebooks
+            notebooks,
+            conversations
           })
         });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          console.error('Could not sync workspace state:', data.error || response.statusText);
+        }
       } catch (error) {
         console.warn('Could not sync workspace state:', error);
       }
+    }
+
+    function renderChatSessions() {
+      const list = document.getElementById('chat-sessions-list');
+      if (!list) return;
+      list.replaceChildren();
+      [...conversations]
+        .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))
+        .slice(0, 10)
+        .forEach(conversation => {
+          const row = document.createElement('div');
+          row.className = `chat-session-item${conversation.id === activeConversationId ? ' active' : ''}`;
+          const openButton = document.createElement('button');
+          openButton.className = 'chat-session-open';
+          openButton.type = 'button';
+          openButton.textContent = conversation.title || 'New chat';
+          openButton.title = conversation.title || 'New chat';
+          openButton.addEventListener('click', () => openConversation(conversation.id));
+          const deleteButton = document.createElement('button');
+          deleteButton.className = 'chat-session-delete';
+          deleteButton.type = 'button';
+          deleteButton.title = 'Delete chat';
+          deleteButton.setAttribute('aria-label', `Delete ${conversation.title || 'chat'}`);
+          deleteButton.innerHTML = '<i class="fa-solid fa-trash" aria-hidden="true"></i>';
+          deleteButton.addEventListener('click', event => {
+            event.stopPropagation();
+            deleteConversation(conversation.id);
+          });
+          row.append(openButton, deleteButton);
+          list.appendChild(row);
+        });
+    }
+
+    function renderConversationMessages(messages = []) {
+      const historyEl = document.getElementById('chat-history');
+      historyEl.replaceChildren();
+      messages.forEach(message => {
+        const bubble = document.createElement('div');
+        bubble.className = `msg-bubble ${message.role === 'user' ? 'msg-user' : 'msg-ai'}`;
+        bubble.textContent = message.content;
+        historyEl.appendChild(bubble);
+      });
+      historyEl.scrollTop = historyEl.scrollHeight;
+      document.getElementById('greeting-box').style.display = messages.length ? 'none' : 'block';
+    }
+
+    function openConversation(id) {
+      const conversation = conversations.find(item => item.id === id);
+      if (!conversation) return;
+      activeConversationId = id;
+      activeProject = conversation.projectId
+        ? projects.find(project => project.id === conversation.projectId) || null
+        : null;
+      document.getElementById('context-banner').style.display = activeProject ? 'inline-flex' : 'none';
+      if (activeProject) document.getElementById('active-project-name').textContent = activeProject.title;
+      renderConversationMessages(conversation.messages || []);
+      renderChatSessions();
+      switchView('chat');
+    }
+
+    function deleteConversation(id) {
+      conversations = conversations.filter(item => item.id !== id);
+      if (activeConversationId === id) {
+        activeConversationId = null;
+        renderConversationMessages();
+      }
+      renderChatSessions();
+      saveState();
+    }
+
+    function persistActiveConversation() {
+      const messages = [...document.querySelectorAll('#chat-history .msg-bubble')].map(bubble => ({
+        role: bubble.classList.contains('msg-user') ? 'user' : 'assistant',
+        content: bubble.textContent
+      })).filter(message => message.content !== 'ASKODA is thinking...');
+      if (!messages.length) return;
+      if (!activeConversationId) activeConversationId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      const existing = conversations.find(item => item.id === activeConversationId);
+      const firstPrompt = messages.find(message => message.role === 'user')?.content || 'New chat';
+      const conversation = {
+        id: activeConversationId,
+        title: firstPrompt.length > 48 ? `${firstPrompt.slice(0, 48)}…` : firstPrompt,
+        projectId: activeProject?.id || null,
+        messages: messages.slice(-20).map(message => ({
+          role: message.role,
+          content: message.content.slice(0, 4000)
+        })),
+        updatedAt: new Date().toISOString()
+      };
+      if (existing) Object.assign(existing, conversation);
+      else conversations.push(conversation);
+      conversations = conversations
+        .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))
+        .slice(0, 10);
+      renderChatSessions();
+      saveState();
     }
 
     // OPENAI CHAT VIA SERVER PROXY
@@ -781,34 +1232,52 @@
       if (!prompt) return;
 
       const historyEl = document.getElementById('chat-history');
-      
       document.getElementById('greeting-box').style.display = 'none';
 
-      // Render User Bubble
       const userBubble = document.createElement('div');
       userBubble.className = 'msg-bubble msg-user';
       userBubble.textContent = prompt;
       historyEl.appendChild(userBubble);
       inputEl.value = '';
 
-      // Render AI Placeholder Bubble
       const aiBubble = document.createElement('div');
       aiBubble.className = 'msg-bubble msg-ai';
       aiBubble.textContent = 'ASKODA is thinking...';
       historyEl.appendChild(aiBubble);
       historyEl.scrollTop = historyEl.scrollHeight;
 
-      // Construct system context with user's personal preferred settings
       let systemContext = `You are ASKODA, an intelligent AI assistant.`;
       if (userSettings.name) systemContext += ` Address the user as ${userSettings.name}.`;
       if (userSettings.pronouns) systemContext += ` Preferred User Pronouns: (${userSettings.pronouns}).`;
-      if (activeProject) systemContext += ` Active Project Context: ${activeProject.title} - ${activeProject.desc}.`;
+      if (activeProject) {
+        systemContext += ` Active Project Context: ${activeProject.title} - ${activeProject.desc}.`;
+        const fileContext = (activeProject.files || [])
+          .filter(file => file && typeof file === 'object' && typeof file.content === 'string')
+          .map(file => `\nFile: ${file.name}\n${file.content}`)
+          .join('\n')
+          .slice(0, 8000);
+        if (fileContext) systemContext += ` Project files for reference:${fileContext}`;
+      }
+      systemContext = systemContext.slice(0, 12000);
 
       try {
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt, systemContext })
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            messages: [
+              ...[...historyEl.querySelectorAll('.msg-bubble')]
+                .slice(0, -2)
+                .map(bubble => ({
+                  role: bubble.classList.contains('msg-user') ? 'user' : 'assistant',
+                  content: bubble.textContent
+                }))
+                .slice(-11),
+              { role: 'user', content: prompt }
+            ],
+            systemContext
+          })
         });
 
         const data = await response.json();
@@ -822,6 +1291,7 @@
       } catch (err) {
         aiBubble.textContent = "Network Error: Could not reach the ASKODA server proxy.";
       }
+      persistActiveConversation();
     }
 
     // Text to Speech Synthesizer
@@ -862,26 +1332,57 @@
     // PROJECTS LOGIC
     function renderProjects() {
       const grid = document.getElementById('projects-grid');
-      grid.innerHTML = '';
-      projects.forEach(p => {
+      const search = (document.getElementById('project-search')?.value || '').trim().toLowerCase();
+      grid.replaceChildren();
+      projects.filter(project => `${project.title} ${project.desc}`.toLowerCase().includes(search)).forEach(p => {
         const card = document.createElement('div');
         card.className = 'project-card';
         card.onclick = () => openProjectWorkspace(p.id);
-        card.innerHTML = `
-          <div>
-            <div class="project-card-header">
-              <h3>${p.title}</h3>
-              <span class="project-badge" style="background:${p.color};"></span>
-            </div>
-            <p>${p.desc}</p>
-          </div>
-          <div class="project-card-footer">
-            <span><i class="fa-solid fa-paperclip"></i> ${p.files.length} Files</span>
-            <span>Open <i class="fa-solid fa-chevron-right"></i></span>
-          </div>
-        `;
+        const details = document.createElement('div');
+        const header = document.createElement('div');
+        header.className = 'project-card-header';
+        const title = document.createElement('h3');
+        title.textContent = p.title;
+        const badge = document.createElement('span');
+        badge.className = 'project-badge';
+        badge.style.background = p.color;
+        const remove = document.createElement('button');
+        remove.className = 'chat-session-delete';
+        remove.type = 'button';
+        remove.title = 'Delete project';
+        remove.setAttribute('aria-label', `Delete project ${p.title}`);
+        remove.innerHTML = '<i class="fa-solid fa-trash" aria-hidden="true"></i>';
+        remove.addEventListener('click', event => {
+          event.stopPropagation();
+          deleteProject(p.id);
+        });
+        header.append(title, badge, remove);
+        const description = document.createElement('p');
+        description.textContent = p.desc;
+        details.append(header, description);
+        const footer = document.createElement('div');
+        footer.className = 'project-card-footer';
+        const fileCount = document.createElement('span');
+        fileCount.innerHTML = '<i class="fa-solid fa-paperclip" aria-hidden="true"></i> ';
+        fileCount.append(document.createTextNode(`${(p.files || []).length} Files`));
+        const open = document.createElement('span');
+        open.innerHTML = 'Open <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>';
+        footer.append(fileCount, open);
+        card.append(details, footer);
         grid.appendChild(card);
       });
+    }
+
+    function deleteProject(id) {
+      const project = projects.find(item => item.id === id);
+      if (!project || !confirm(`Delete project "${project.title}" and its saved file contents?`)) return;
+      projects = projects.filter(item => item.id !== id);
+      if (activeProject?.id === id) {
+        closeProjectWorkspace();
+        clearContext();
+      }
+      renderProjects();
+      saveState();
     }
 
     function openProjectWorkspace(id) {
@@ -900,24 +1401,58 @@
 
     function renderProjectFiles() {
       const container = document.getElementById('project-files-container');
-      if(!activeProject.files.length) {
+      if (!(activeProject.files || []).length) {
         container.innerHTML = `<p style="color:var(--text-muted); font-size:0.9rem;">No context files added to this project yet.</p>`;
         return;
       }
-      container.innerHTML = activeProject.files.map((file, idx) => `
-        <div class="file-item">
-          <span style="font-size:0.9rem;"><i class="fa-regular fa-file" style="margin-right:8px; color:var(--accent-skyblue);"></i> ${file}</span>
-          <i class="fa-solid fa-trash" style="color:var(--text-muted); cursor:pointer;" onclick="deleteProjectFile(${idx})"></i>
-        </div>
-      `).join('');
+      container.replaceChildren();
+      activeProject.files.forEach((file, idx) => {
+        const row = document.createElement('div');
+        row.className = 'file-item';
+        const label = document.createElement('span');
+        label.style.fontSize = '0.9rem';
+        const icon = document.createElement('i');
+        icon.className = 'fa-regular fa-file';
+        icon.style.marginRight = '8px';
+        icon.style.color = 'var(--accent-skyblue)';
+        label.append(icon, document.createTextNode(typeof file === 'string' ? file : file.name));
+        const remove = document.createElement('button');
+        remove.className = 'chat-session-delete';
+        remove.type = 'button';
+        remove.title = 'Remove file';
+        remove.setAttribute('aria-label', `Remove ${typeof file === 'string' ? file : file.name}`);
+        remove.innerHTML = '<i class="fa-solid fa-trash" aria-hidden="true"></i>';
+        remove.addEventListener('click', () => deleteProjectFile(idx));
+        row.append(label, remove);
+        container.appendChild(row);
+      });
     }
 
-    function uploadProjectFile(e) {
+    async function uploadProjectFile(e) {
       const file = e.target.files[0];
-      if (file && activeProject) {
-        activeProject.files.push(file.name);
+      if (!file || !activeProject) return;
+      const allowedExtension = /\.(txt|md|csv|json)$/i.test(file.name);
+      if (!allowedExtension || file.size > 100_000) {
+        alert('Choose a .txt, .md, .csv, or .json file smaller than 100 KB.');
+        e.target.value = '';
+        return;
+      }
+      try {
+        const savedTextSize = projects.reduce((total, project) => total +
+          (project.files || []).reduce((size, savedFile) =>
+            size + (typeof savedFile === 'object' ? (savedFile.content || '').length : 0), 0), 0);
+        if (savedTextSize + file.size > 1_000_000) {
+          throw new Error('Project file storage is limited to 1 MB of text. Remove files before adding more.');
+        }
+        const content = await file.text();
+        activeProject.files ||= [];
+        activeProject.files.push({ name: file.name, content, addedAt: new Date().toISOString() });
         renderProjectFiles();
         saveState();
+      } catch (error) {
+        alert(`Could not read that file: ${error.message}`);
+      } finally {
+        e.target.value = '';
       }
     }
 
@@ -944,26 +1479,54 @@
     // NOTEBOOKS LOGIC
     function renderNotebooks() {
       const grid = document.getElementById('notebooks-grid');
-      grid.innerHTML = '';
+      grid.replaceChildren();
       notebooks.forEach(nb => {
         const card = document.createElement('div');
         card.className = 'project-card';
         card.onclick = () => openNotebookEditor(nb.id);
-        card.innerHTML = `
-          <div>
-            <div class="project-card-header">
-              <h3>${nb.title}</h3>
-              <span class="project-badge" style="background:${nb.color};"></span>
-            </div>
-            <p>${nb.desc}</p>
-          </div>
-          <div class="project-card-footer">
-            <span><i class="fa-solid fa-code"></i> ${nb.cells.length} Cells</span>
-            <span>Open <i class="fa-solid fa-chevron-right"></i></span>
-          </div>
-        `;
+        const details = document.createElement('div');
+        const header = document.createElement('div');
+        header.className = 'project-card-header';
+        const title = document.createElement('h3');
+        title.textContent = nb.title;
+        const badge = document.createElement('span');
+        badge.className = 'project-badge';
+        badge.style.background = nb.color;
+        const remove = document.createElement('button');
+        remove.className = 'chat-session-delete';
+        remove.type = 'button';
+        remove.title = 'Delete notebook';
+        remove.setAttribute('aria-label', `Delete notebook ${nb.title}`);
+        remove.innerHTML = '<i class="fa-solid fa-trash" aria-hidden="true"></i>';
+        remove.addEventListener('click', event => {
+          event.stopPropagation();
+          deleteNotebook(nb.id);
+        });
+        header.append(title, badge, remove);
+        const description = document.createElement('p');
+        description.textContent = nb.desc;
+        details.append(header, description);
+        const footer = document.createElement('div');
+        footer.className = 'project-card-footer';
+        const count = document.createElement('span');
+        count.innerHTML = '<i class="fa-solid fa-code" aria-hidden="true"></i> ';
+        count.append(document.createTextNode(`${(nb.cells || []).length} Cells`));
+        const open = document.createElement('span');
+        open.innerHTML = 'Open <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>';
+        footer.append(count, open);
+        card.append(details, footer);
         grid.appendChild(card);
       });
+    }
+
+    function deleteNotebook(id) {
+      const notebook = notebooks.find(item => item.id === id);
+      if (!notebook || !confirm(`Delete notebook "${notebook.title}"?`)) return;
+      notebooks = notebooks.filter(item => item.id !== id);
+      if (activeNotebook?.id === id) closeNotebookEditor();
+      activeNotebook = null;
+      renderNotebooks();
+      saveState();
     }
 
     function openNotebookEditor(id) {
@@ -982,58 +1545,211 @@
 
     function renderCells() {
       const container = document.getElementById('cell-container');
-      container.innerHTML = '';
-      activeNotebook.cells.forEach((cell, idx) => {
+      container.replaceChildren();
+      (activeNotebook.cells || []).forEach((cell, idx) => {
+        const isMarkdown = cell.type === 'markdown';
         const cellEl = document.createElement('div');
         cellEl.className = 'notebook-cell';
-        cellEl.innerHTML = `
-          <div class="cell-header">
-            <span>Cell [${idx + 1}]</span>
-            <i class="fa-solid fa-trash" style="cursor:pointer" onclick="deleteCell(${idx})"></i>
-          </div>
-          <textarea class="cell-textarea" id="cell-val-${idx}">${cell.code}</textarea>
-          <div class="cell-actions">
-            <button class="btn-run-cell" onclick="runCell(${idx})"><i class="fa-solid fa-play"></i> Run Code</button>
-          </div>
-          <div class="cell-output ${cell.output ? 'active' : ''}" id="cell-out-${idx}">${cell.output || ''}</div>
-        `;
+        const header = document.createElement('div');
+        header.className = 'cell-header';
+        const language = (cell.language || activeNotebook.language || 'javascript').toLowerCase();
+        const isJavaScript = ['javascript', 'js', 'nodejs'].includes(language);
+        const label = document.createElement('span');
+        label.textContent = `${isMarkdown ? 'Note' : language} [${idx + 1}]`;
+        const remove = document.createElement('button');
+        remove.className = 'chat-session-delete';
+        remove.type = 'button';
+        remove.title = 'Delete cell';
+        remove.setAttribute('aria-label', `Delete cell ${idx + 1}`);
+        remove.innerHTML = '<i class="fa-solid fa-trash" aria-hidden="true"></i>';
+        remove.addEventListener('click', () => deleteCell(idx));
+        header.append(label, remove);
+        const textarea = document.createElement('textarea');
+        textarea.className = 'cell-textarea';
+        textarea.id = `cell-val-${idx}`;
+        textarea.value = cell.code || '';
+        textarea.setAttribute('aria-label', `${isMarkdown ? 'Note' : language} cell ${idx + 1}`);
+        textarea.addEventListener('change', () => {
+          cell.code = textarea.value;
+          saveState();
+        });
+        cellEl.append(header, textarea);
+        if (!isMarkdown) {
+          const actions = document.createElement('div');
+          actions.className = 'cell-actions';
+          const runButton = document.createElement('button');
+          runButton.className = 'btn-run-cell';
+          runButton.type = 'button';
+          runButton.innerHTML = '<i class="fa-solid fa-play" aria-hidden="true"></i> Run Code';
+          runButton.disabled = !isJavaScript;
+          if (!isJavaScript) runButton.title = 'ASKODA currently runs JavaScript cells only.';
+          runButton.addEventListener('click', () => runCell(idx));
+          actions.appendChild(runButton);
+          const output = document.createElement('div');
+          output.className = `cell-output${cell.output ? ' active' : ''}`;
+          output.id = `cell-out-${idx}`;
+          output.textContent = cell.output || '';
+          cellEl.append(actions, output);
+        }
         container.appendChild(cellEl);
       });
     }
 
-    function addCell() {
+    function addCell(type = 'code') {
       if(!activeNotebook) return;
-      activeNotebook.cells.push({ id: Date.now(), code: '// New Cell', output: '' });
+      activeNotebook.cells.push({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        type,
+        code: type === 'markdown' ? '' : '// New JavaScript cell',
+        output: ''
+      });
       renderCells();
       saveState();
     }
 
     function deleteCell(idx) {
+      if (!activeNotebook?.cells?.[idx]) return;
       activeNotebook.cells.splice(idx, 1);
       renderCells();
       saveState();
     }
 
-    function runCell(idx) {
-      const code = document.getElementById(`cell-val-${idx}`).value;
-      activeNotebook.cells[idx].code = code;
+    function executeNotebookCode(code) {
+      return new Promise((resolve, reject) => {
+        let worker;
+        let timeoutId;
+        const cleanup = () => {
+          clearTimeout(timeoutId);
+          worker?.terminate();
+        };
+        try {
+          worker = new Worker('/notebook-worker.js');
+          worker.onmessage = event => {
+            cleanup();
+            if (event.data.error) reject(new Error(event.data.error));
+            else resolve(event.data.output);
+          };
+          worker.onerror = event => {
+            cleanup();
+            reject(new Error(event.message || 'Notebook worker failed.'));
+          };
+          timeoutId = setTimeout(() => {
+            cleanup();
+            reject(new Error('Execution timed out after 5 seconds.'));
+          }, 5000);
+          worker.postMessage(code);
+        } catch (error) {
+          cleanup();
+          reject(error);
+        }
+      });
+    }
+
+    async function runCell(idx) {
+      const cell = activeNotebook?.cells?.[idx];
+      if (!cell || cell.type === 'markdown') return;
       const outputEl = document.getElementById(`cell-out-${idx}`);
+      const language = (cell.language || activeNotebook.language || 'javascript').toLowerCase();
+      if (!['javascript', 'js', 'nodejs'].includes(language)) {
+        outputEl.textContent = `ASKODA currently runs JavaScript cells only; this cell is ${language}.`;
+        outputEl.classList.add('active');
+        cell.output = outputEl.textContent;
+        saveState();
+        return;
+      }
+      const code = document.getElementById(`cell-val-${idx}`).value;
+      cell.code = code;
+      outputEl.textContent = 'Running...';
+      outputEl.classList.add('active');
       try {
-        let logs = [];
-        const originalLog = console.log;
-        console.log = (...args) => logs.push(args.join(' '));
-        eval(code);
-        console.log = originalLog;
-        const res = logs.join('\n') || 'Executed successfully.';
-        outputEl.textContent = res;
-        outputEl.classList.add('active');
-        activeNotebook.cells[idx].output = res;
-      } catch (err) {
-        outputEl.textContent = 'Error: ' + err.message;
-        outputEl.classList.add('active');
-        activeNotebook.cells[idx].output = 'Error: ' + err.message;
+        const output = await executeNotebookCode(code);
+        outputEl.textContent = output;
+        cell.output = output;
+      } catch (error) {
+        outputEl.textContent = `Error: ${error.message}`;
+        cell.output = `Error: ${error.message}`;
       }
       saveState();
+    }
+
+    function normalizeNotebookCells(cells, language) {
+      if (!Array.isArray(cells) || cells.length > 200) throw new Error('Notebook must contain no more than 200 cells.');
+      return cells.map((cell, index) => {
+        const source = Array.isArray(cell.source) ? cell.source.join('') : (cell.source ?? cell.code ?? '');
+        if (typeof source !== 'string' || source.length > 20000) throw new Error(`Cell ${index + 1} is too large.`);
+        const type = cell.cell_type === 'markdown' || cell.type === 'markdown' ? 'markdown' : 'code';
+        return {
+          id: cell.id || `${Date.now()}-${index}`,
+          type,
+          language: cell.language || language,
+          code: source,
+          output: typeof cell.output === 'string' ? cell.output : ''
+        };
+      });
+    }
+
+    async function importNotebook(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      try {
+        if (file.size > 1_000_000) throw new Error('Notebook files must be smaller than 1 MB.');
+        const parsed = JSON.parse(await file.text());
+        const importedCells = Array.isArray(parsed.cells) ? parsed.cells : parsed.notebook?.cells;
+        const language = (parsed.metadata?.language_info?.name || parsed.metadata?.kernelspec?.language || 'javascript').toLowerCase();
+        const cells = normalizeNotebookCells(importedCells, language);
+        const title = (file.name || 'Imported Notebook').replace(/\.(ipynb|json)$/i, '');
+        notebooks.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          title,
+          desc: 'Imported notebook',
+          color: '#a78bfa',
+          language,
+          cells
+        });
+        renderNotebooks();
+        saveState();
+        switchView('notebooks');
+      } catch (error) {
+        alert(`Could not import notebook: ${error.message}`);
+      } finally {
+        event.target.value = '';
+      }
+    }
+
+    function exportNotebook() {
+      if (!activeNotebook) return;
+      const documentData = {
+        cells: activeNotebook.cells.map(cell => ({
+          cell_type: cell.type === 'markdown' ? 'markdown' : 'code',
+          execution_count: null,
+          metadata: {},
+          outputs: cell.type === 'markdown' || !cell.output ? [] : [{
+            output_type: 'stream',
+            name: 'stdout',
+            text: cell.output
+          }],
+          source: cell.code
+        })),
+        metadata: {
+          language_info: { name: activeNotebook.language || 'javascript' },
+          kernelspec: {
+            display_name: activeNotebook.language || 'JavaScript',
+            language: activeNotebook.language || 'javascript',
+            name: activeNotebook.language || 'javascript'
+          }
+        },
+        nbformat: 4,
+        nbformat_minor: 5
+      };
+      const blob = new Blob([JSON.stringify(documentData, null, 2)], { type: 'application/x-ipynb+json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${activeNotebook.title.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'askoda-notebook'}.ipynb`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
     // ITEM MODALS LOGIC
@@ -1058,7 +1774,7 @@
         projects.push({ id: Date.now(), title, desc: desc || 'No description', color: chosenColor, files: [] });
         renderProjects();
       } else {
-        notebooks.push({ id: Date.now(), title, desc: desc || 'No description', color: chosenColor, cells: [] });
+        notebooks.push({ id: Date.now(), title, desc: desc || 'No description', color: chosenColor, language: 'javascript', cells: [] });
         renderNotebooks();
       }
 
@@ -1101,15 +1817,26 @@
     }
 
     window.addEventListener("DOMContentLoaded", async () => {
+      setAuthMode('login');
+      document.getElementById('email-auth-form').addEventListener('submit', handleEmailAuth);
+      document.getElementById('email-verify-form').addEventListener('submit', handleEmailVerification);
+      document.getElementById('auth-mode-toggle').addEventListener('click', () => {
+        setAuthMode(authMode === 'login' ? 'register' : 'login');
+      });
+      document.getElementById('verification-resend').addEventListener('click', resendVerificationCode);
+      document.getElementById('verification-back').addEventListener('click', showEmailCredentials);
+      document.getElementById('notebook-upload').addEventListener('change', importNotebook);
       await loadClientConfig();
-      initUserSession();
+      await restoreUserSession();
       setTimeout(typeASK, 300);
     });
 
     function startNewChat() {
       switchView('chat');
-      document.getElementById('chat-history').innerHTML = '';
-      document.getElementById('greeting-box').style.display = 'block';
+      activeConversationId = null;
+      renderConversationMessages();
+      renderChatSessions();
+      document.getElementById('main-chat-input').focus();
     }
   </script>
 </body>
