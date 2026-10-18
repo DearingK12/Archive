@@ -144,6 +144,16 @@
       text-transform: uppercase;
     }
 
+    .workspace-sync-status {
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      margin: 8px 10px 0;
+      overflow-wrap: anywhere;
+    }
+
+    .workspace-sync-status[data-state="error"] { color: #fca5a5; }
+    .workspace-sync-status[data-state="saved"] { color: #86efac; }
+
     .chat-session-item {
       display: flex;
       align-items: center;
@@ -423,8 +433,9 @@
         </button>
 
         <section class="chat-sessions" aria-label="Saved chats">
-          <h3>Recent chats</h3>
+          <h3>Chat history</h3>
           <div id="chat-sessions-list"></div>
+          <p class="workspace-sync-status" id="workspace-sync-status" role="status" aria-live="polite"></p>
         </section>
 
         <ul class="sidebar-menu">
@@ -1065,6 +1076,13 @@
       persistWorkspaceState();
     }
 
+    function setWorkspaceSyncStatus(message, state = '') {
+      const status = document.getElementById('workspace-sync-status');
+      if (!status) return;
+      status.textContent = message;
+      status.dataset.state = state;
+    }
+
     async function loadWorkspaceState() {
       if (!currentUser) return;
       const loadingUserId = currentUser.id;
@@ -1077,7 +1095,10 @@
           initUserSession();
           return;
         }
-        if (!response.ok) return;
+        if (!response.ok) {
+          setWorkspaceSyncStatus(`Could not load saved history (${response.status}).`, 'error');
+          return;
+        }
         const savedState = await response.json();
         if (!currentUser || currentUser.id !== loadingUserId) return;
         if (!savedState) {
@@ -1099,8 +1120,10 @@
         renderNotebooks();
         renderChatSessions();
         if (activeConversationId) openConversation(activeConversationId);
+        setWorkspaceSyncStatus('History loaded from this ASKODA server.', 'saved');
       } catch (error) {
-        console.warn('Workspace state is using local cache:', error);
+        console.error('Could not load workspace history:', error);
+        setWorkspaceSyncStatus('Could not load saved history. Check the server connection.', 'error');
       }
     }
 
@@ -1120,11 +1143,21 @@
           })
         });
         if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          console.error('Could not sync workspace state:', data.error || response.statusText);
+          const data = await response.json();
+          const message = data.error || response.statusText;
+          console.error('Could not sync workspace state:', message);
+          setWorkspaceSyncStatus(
+            response.status === 413
+              ? 'History was not saved: workspace storage limit reached.'
+              : `History was not saved: ${message}`,
+            'error'
+          );
+          return;
         }
+        setWorkspaceSyncStatus('History saved on this ASKODA server.', 'saved');
       } catch (error) {
-        console.warn('Could not sync workspace state:', error);
+        console.error('Could not sync workspace state:', error);
+        setWorkspaceSyncStatus('History was not saved. Check the server connection.', 'error');
       }
     }
 
@@ -1134,7 +1167,6 @@
       list.replaceChildren();
       [...conversations]
         .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))
-        .slice(0, 10)
         .forEach(conversation => {
           const row = document.createElement('div');
           row.className = `chat-session-item${conversation.id === activeConversationId ? ' active' : ''}`;
@@ -1210,17 +1242,14 @@
         id: activeConversationId,
         title: firstPrompt.length > 48 ? `${firstPrompt.slice(0, 48)}…` : firstPrompt,
         projectId: activeProject?.id || null,
-        messages: messages.slice(-20).map(message => ({
+        messages: messages.map(message => ({
           role: message.role,
-          content: message.content.slice(0, 4000)
+          content: message.content
         })),
         updatedAt: new Date().toISOString()
       };
       if (existing) Object.assign(existing, conversation);
       else conversations.push(conversation);
-      conversations = conversations
-        .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))
-        .slice(0, 10);
       renderChatSessions();
       saveState();
     }
