@@ -17,7 +17,8 @@
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "nodemailer": "^10.1.1",
-    "openai": "^4.104.0"
+    "openai": "^4.104.0",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

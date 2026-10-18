@@ -10,6 +10,7 @@ const rateLimit = require('express-rate-limit');
 const { OAuth2Client } = require('google-auth-library');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
+const { Pool } = require('pg');
 
 dotenv.config();
 
@@ -20,6 +21,8 @@ const DATA_DIR = process.env.ASKODA_DATA_DIR
   : path.join(__dirname, 'data');
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const databaseUrl = process.env.DATABASE_URL;
+const databasePool = databaseUrl ? new Pool({ connectionString: databaseUrl }) : null;
 const SESSION_COOKIE = 'askoda_session';
 const scrypt = promisify(crypto.scrypt);
 const nodeEnv = (process.env.NODE_ENV || '').toLowerCase();
@@ -58,6 +61,11 @@ if (isProduction) {
   }
   if (isPlaceholder(googleClientId)) throw new Error('A real GOOGLE_CLIENT_ID is required in production.');
   if (isPlaceholder(process.env.OPENAI_API_KEY)) throw new Error('A real OPENAI_API_KEY is required in production.');
+  if (!databasePool) throw new Error('DATABASE_URL is required in production.');
+}
+
+if (databasePool) {
+  databasePool.on('error', error => console.error('Unexpected PostgreSQL pool error:', error));
 }
 
 app.disable('x-powered-by');
@@ -176,15 +184,109 @@ async function writeUserStore(users) {
 }
 
 let userStoreWrite = Promise.resolve();
-function updateUserStore(update) {
+async function readUserRecord(email) {
+  if (databasePool) {
+    const { rows } = await databasePool.query(
+      'SELECT record FROM askoda_users WHERE email = $1',
+      [email]
+    );
+    return rows[0]?.record || null;
+  }
+  const users = await readUserStore();
+  return users[email] || null;
+}
+
+function updateUserRecord(email, update) {
+  if (databasePool) {
+    return updateDatabaseUserRecord(email, update);
+  }
+
   const operation = userStoreWrite.then(async () => {
     const users = await readUserStore();
-    const result = await update(users);
+    const { record, result } = await update(users[email] || null);
+    if (record) users[email] = record;
+    else delete users[email];
     await writeUserStore(users);
     return result;
   });
   userStoreWrite = operation.catch(() => {});
   return operation;
+}
+
+async function updateDatabaseUserRecord(email, update) {
+  const client = await databasePool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [email]);
+    const { rows } = await client.query(
+      'SELECT record FROM askoda_users WHERE email = $1 FOR UPDATE',
+      [email]
+    );
+    const { record, result } = await update(rows[0]?.record || null);
+    if (record) {
+      await client.query(
+        `INSERT INTO askoda_users (email, record)
+         VALUES ($1, $2::jsonb)
+         ON CONFLICT (email) DO UPDATE SET record = EXCLUDED.record`,
+        [email, JSON.stringify(record)]
+      );
+    } else if (rows.length > 0) {
+      await client.query('DELETE FROM askoda_users WHERE email = $1', [email]);
+    }
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      console.error('PostgreSQL user-store rollback failed:', rollbackError);
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function initializeDatabase() {
+  await databasePool.query(`
+    CREATE TABLE IF NOT EXISTS askoda_users (
+      email TEXT PRIMARY KEY,
+      record JSONB NOT NULL
+    )
+  `);
+  await databasePool.query(`
+    CREATE TABLE IF NOT EXISTS askoda_workspace_state (
+      user_id TEXT PRIMARY KEY,
+      data JSONB NOT NULL
+    )
+  `);
+}
+
+async function readWorkspaceState(userId) {
+  if (databasePool) {
+    const { rows } = await databasePool.query(
+      'SELECT data FROM askoda_workspace_state WHERE user_id = $1',
+      [userId]
+    );
+    return rows[0]?.data || null;
+  }
+  const store = await readStateStore();
+  return store[userId] || null;
+}
+
+async function writeWorkspaceState(userId, data) {
+  if (databasePool) {
+    await databasePool.query(
+      `INSERT INTO askoda_workspace_state (user_id, data)
+       VALUES ($1, $2::jsonb)
+       ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data`,
+      [userId, JSON.stringify(data)]
+    );
+    return;
+  }
+  await updateStateStore(store => {
+    store[userId] = data;
+  });
 }
 
 function setSessionCookie(res, user, expiresIn = '7d') {
@@ -299,11 +401,14 @@ app.post('/api/auth/register', requireSameOrigin, authLimiter, async (req, res) 
   try {
     const salt = crypto.randomBytes(16);
     const passwordHash = await scrypt(password, salt, 64);
-    const result = await updateUserStore(async users => {
-      let record = users[normalizedEmail];
-      if (record?.verifiedAt) return { kind: 'existing' };
+    const result = await updateUserRecord(normalizedEmail, async currentRecord => {
+      let record = currentRecord;
+      if (record?.verifiedAt) return { record, result: { kind: 'existing' } };
       if (record && verificationCooldown(record) > 0) {
-        return { kind: 'cooldown', retryAfterSeconds: Math.ceil(verificationCooldown(record) / 1000) };
+        return {
+          record,
+          result: { kind: 'cooldown', retryAfterSeconds: Math.ceil(verificationCooldown(record) / 1000) }
+        };
       }
       if (!record) {
         record = {
@@ -313,10 +418,9 @@ app.post('/api/auth/register', requireSameOrigin, authLimiter, async (req, res) 
           salt: salt.toString('hex'),
           passwordHash: Buffer.from(passwordHash).toString('hex')
         };
-        users[normalizedEmail] = record;
       }
       await sendVerificationCode(record);
-      return { kind: 'verification-sent' };
+      return { record, result: { kind: 'verification-sent' } };
     });
     if (result.kind === 'existing') {
       return res.status(409).json({ error: 'An account with that email already exists. Please sign in.' });
@@ -345,11 +449,12 @@ app.post('/api/auth/resend-verification', requireSameOrigin, authLimiter, async 
 
   try {
     const normalizedEmail = email.trim().toLowerCase();
-    await updateUserStore(async users => {
-      const record = users[normalizedEmail];
-      if (!record || record.verifiedAt || verificationCooldown(record) > 0) return { sent: false };
+    await updateUserRecord(normalizedEmail, async record => {
+      if (!record || record.verifiedAt || verificationCooldown(record) > 0) {
+        return { record, result: { sent: false } };
+      }
       await sendVerificationCode(record);
-      return { sent: true };
+      return { record, result: { sent: true } };
     });
     res.status(202).json({
       message: 'If the account needs verification, a code has been sent or is still within the resend delay.'
@@ -371,20 +476,21 @@ app.post('/api/auth/verify-email', requireSameOrigin, authLimiter, async (req, r
 
   try {
     const normalizedEmail = email.trim().toLowerCase();
-    const result = await updateUserStore(users => {
-      const record = users[normalizedEmail];
-      if (!record || record.verifiedAt || !record.verificationCodeHash) return { error: 'invalid' };
+    const result = await updateUserRecord(normalizedEmail, record => {
+      if (!record || record.verifiedAt || !record.verificationCodeHash) {
+        return { record, result: { error: 'invalid' } };
+      }
       if (Date.now() > Number(record.verificationExpiresAt)) {
         delete record.verificationCodeHash;
         delete record.verificationExpiresAt;
         delete record.verificationAttempts;
-        return { error: 'expired' };
+        return { record, result: { error: 'expired' } };
       }
       if ((Number(record.verificationAttempts) || 0) >= MAX_VERIFICATION_ATTEMPTS) {
         delete record.verificationCodeHash;
         delete record.verificationExpiresAt;
         delete record.verificationAttempts;
-        return { error: 'locked' };
+        return { record, result: { error: 'locked' } };
       }
       if (!verificationCodeMatches(normalizedEmail, code, record.verificationCodeHash)) {
         record.verificationAttempts = (Number(record.verificationAttempts) || 0) + 1;
@@ -392,9 +498,9 @@ app.post('/api/auth/verify-email', requireSameOrigin, authLimiter, async (req, r
           delete record.verificationCodeHash;
           delete record.verificationExpiresAt;
           delete record.verificationAttempts;
-          return { error: 'locked' };
+          return { record, result: { error: 'locked' } };
         }
-        return { error: 'invalid' };
+        return { record, result: { error: 'invalid' } };
       }
 
       record.verifiedAt = new Date().toISOString();
@@ -402,7 +508,10 @@ app.post('/api/auth/verify-email', requireSameOrigin, authLimiter, async (req, r
       delete record.verificationExpiresAt;
       delete record.verificationSentAt;
       delete record.verificationAttempts;
-      return { user: { sub: `account:${record.id}`, name: record.name, email: record.email } };
+      return {
+        record,
+        result: { user: { sub: `account:${record.id}`, name: record.name, email: record.email } }
+      };
     });
 
     if (result.error === 'expired') return res.status(410).json({ error: 'That code has expired. Request a new one.' });
@@ -426,8 +535,7 @@ app.post('/api/auth/login', requireSameOrigin, authLimiter, async (req, res) => 
 
   try {
     const normalizedEmail = email.trim().toLowerCase();
-    const users = await readUserStore();
-    const record = users[normalizedEmail];
+    const record = await readUserRecord(normalizedEmail);
     const salt = record ? Buffer.from(record.salt, 'hex') : Buffer.alloc(16);
     const expectedHash = record ? Buffer.from(record.passwordHash, 'hex') : Buffer.alloc(64);
     const actualHash = Buffer.from(await scrypt(password, salt, 64));
@@ -466,8 +574,7 @@ app.post('/api/auth/signout', requireSameOrigin, (req, res) => {
 
 app.get('/api/state', requireSession, async (req, res) => {
   try {
-    const store = await readStateStore();
-    res.json(store[req.user.sub] || null);
+    res.json(await readWorkspaceState(req.user.sub));
   } catch (error) {
     console.error('State read error:', error);
     res.status(500).json({ error: 'Could not load workspace state.' });
@@ -485,9 +592,7 @@ app.put('/api/state', requireSameOrigin, requireSession, async (req, res) => {
 
   try {
     const updatedAt = new Date().toISOString();
-    await updateStateStore(store => {
-      store[req.user.sub] = { settings, projects, notebooks, conversations, updatedAt };
-    });
+    await writeWorkspaceState(req.user.sub, { settings, projects, notebooks, conversations, updatedAt });
     res.json({ saved: true, updatedAt });
   } catch (error) {
     console.error('State write error:', error);
@@ -552,10 +657,34 @@ app.use((error, req, res, next) => {
   res.status(500).json({ error: 'Internal server error.' });
 });
 
-const server = app.listen(PORT, () => console.log(`ASKODA Server running at http://localhost:${PORT}`));
-function shutdown(signal) {
-  console.log(`${signal} received, shutting down.`);
-  server.close(() => process.exit(0));
+async function startServer() {
+  if (databasePool) await initializeDatabase();
+  const server = app.listen(PORT, () => console.log(`ASKODA Server running at http://localhost:${PORT}`));
+  function shutdown(signal) {
+    console.log(`${signal} received, shutting down.`);
+    server.close(() => {
+      if (databasePool) {
+        databasePool.end().then(() => process.exit(0)).catch(error => {
+          console.error('PostgreSQL pool shutdown failed:', error);
+          process.exit(1);
+        });
+      } else {
+        process.exit(0);
+      }
+    });
+  }
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+
+startServer().catch(async error => {
+  console.error('ASKODA startup failed:', error);
+  if (databasePool) {
+    try {
+      await databasePool.end();
+    } catch (shutdownError) {
+      console.error('PostgreSQL pool shutdown failed:', shutdownError);
+    }
+  }
+  process.exitCode = 1;
+});
